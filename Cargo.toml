@@ -1,0 +1,90 @@
+[workspace]
+members = [
+    ".",
+    "crates/types/rpc"
+]
+resolver = "2"
+
+[workspace.package]
+name = "coordinator_rust"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.88"
+repository = "https://github.com/succinctlabs/sp1"
+keywords = ["sp1", "succinct", "zero-knowledge", "zkvm"]
+categories = ["cryptography"]
+
+[package]
+name = "coordinator_rust"
+version = { workspace = true }
+edition = { workspace = true }
+license = { workspace = true }
+rust-version = { workspace = true }
+repository = { workspace = true }
+keywords = { workspace = true }
+categories = { workspace = true }
+
+[[bin]]
+name = "coordinator_rust"
+path = "src/bin/main.rs"
+
+[dependencies]
+rpc-types = { path = "crates/types/rpc" }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+uuid = { workspace = true }
+tonic = { workspace = true }
+tonic-reflection = { workspace = true }
+hex = { workspace = true }
+http = { workspace = true }
+tokio-stream = "0.1"
+
+[workspace.lib]
+name = "coordinator_rust"
+path = "src/lib.rs"
+
+[workspace.dependencies]
+rpc = { path = "crates/types/rpc" }
+tokio = { version = "1.0", features = ["full"] }
+anyhow = "1.0"
+uuid = { version = "1.0", features = ["v4"] }
+http = "1.0"
+hex = "0.4"
+chrono = "0.4"
+reqwest = { version = "0.11", features = ["json"] }
+prost-types = "0.14.0"
+prost-build = "0.14.0"
+prost = "0.14.0"
+serde = { version = "1.0.210", features = ["derive"] }
+serde_json = "1.0.104"
+alloy-signer = "1.0.23"
+alloy-signer-local = "1.0.23"
+alloy-primitives = { version = "1.0.0", features = ["k256"] }
+alloy-sol-types = "1.0.0"
+alloy-json-rpc = "1.0.23"
+alloy = { version = "1.0.23", features = [
+    "reqwest",
+    "network",
+    "providers",
+    "sol-types",
+    "rpc-types",
+] }
+alloy-provider = { version = "0.14.0", default-features = false, features = [
+    "reqwest",
+    "reqwest-rustls-tls",
+] }
+alloy-rpc-types = { version = "0.14.0", default-features = false, features = [
+    "eth",
+] }
+alloy-rpc-client = { version = "0.14.0", default-features = false }
+alloy-transport = { version = "0.14.0", default-features = false }
+alloy-network = { version = "1.0.23", default-features = false }
+alloy-rlp = { version = "0.3.3", default-features = false }
+thiserror = "2.0.12"
+tonic = { version = "0.14", features = ["transport", "gzip"] }
+tonic-reflection = "0.14"
+tonic-prost-build = "0.14.0"
+tonic-prost = "0.14"
+bytes = "1"
+async-trait = "0.1"
