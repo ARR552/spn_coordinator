@@ -83,7 +83,10 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
     }
 
     async fn get_filtered_proof_requests(&self, _request: Request<GetFilteredProofRequestsRequest>) -> Result<Response<GetFilteredProofRequestsResponse>, Status> {
-        Err(Status::unimplemented("get_filtered_proof_requests not implemented"))
+        println!("Received get_filtered_proof_requests request: {:?}", _request.get_ref());
+        Ok(Response::new(GetFilteredProofRequestsResponse {
+            requests: vec![],
+        }))
     }
 
     type SubscribeProofRequestsStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<ProofRequest, Status>> + Send>>;
@@ -141,7 +144,9 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
     }
 
     async fn get_owner(&self, _request: Request<GetOwnerRequest>) -> Result<Response<GetOwnerResponse>, Status> {
-        Err(Status::unimplemented("get_owner not implemented"))
+        // println!("Received get_owner request: {:?}", _request.get_ref());
+        let acct = _request.into_inner().address.to_ascii_lowercase();
+        Ok(Response::new(GetOwnerResponse { owner: acct.clone() }))
     }
 
     async fn get_program(&self, _request: Request<GetProgramRequest>) -> Result<Response<GetProgramResponse>, Status> {
