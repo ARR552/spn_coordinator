@@ -1,0 +1,18 @@
+[package]
+name = "grpc_client_tool"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+anyhow = "1.0"
+rpc-types = { path = "../../crates/types/rpc" }
+tonic = { version = "0.14.1", features = ["tls-ring", "tls-native-roots"] }
+tokio = { version = "1.0", features = ["full"] }
+hex = "0.4"
+uuid = { version = "1.0", features = ["v4"] }
+
+[[bin]]
+name = "grpc_client_tool"
+path = "main.rs"

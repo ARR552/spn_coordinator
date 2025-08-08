@@ -1,5 +1,5 @@
 # .gitignore
-/target
+target
 # Extras some people add
 **/*.rs.bk   # editor backups
 .idea/
