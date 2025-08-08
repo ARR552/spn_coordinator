@@ -20,7 +20,7 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         request: Request<RequestProofRequest>,
     ) -> Result<Response<RequestProofResponse>, Status> {
         let req = request.into_inner();
-        println!("Received proof request: {:?}", req);
+        // println!("Received proof request: {:?}", req);
         
         // Generate a unique request ID
         let request_id = random::<[u8; 32]>().to_vec();
@@ -111,7 +111,7 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
     }
 
     async fn get_filtered_proof_requests(&self, _request: Request<GetFilteredProofRequestsRequest>) -> Result<Response<GetFilteredProofRequestsResponse>, Status> {
-        println!("Received get_filtered_proof_requests request: {:?}", _request.get_ref());
+        // println!("Received get_filtered_proof_requests request: {:?}", _request.get_ref());
         // TODO implemente the filtering logic
         let requests = self.requests.lock().await;
         let all_requests: Vec<ProofRequest> = requests.values().map(|(req, _)| req.clone()).collect();

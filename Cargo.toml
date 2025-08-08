@@ -6,7 +6,6 @@ members = [
 resolver = "2"
 
 [workspace.package]
-name = "coordinator_rust"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
@@ -40,10 +39,6 @@ http = { workspace = true }
 tokio-stream = "0.1"
 rand = "0.9.2"
 chrono.workspace = true
-
-[workspace.lib]
-name = "coordinator_rust"
-path = "src/lib.rs"
 
 [workspace.dependencies]
 rpc = { path = "crates/types/rpc" }
