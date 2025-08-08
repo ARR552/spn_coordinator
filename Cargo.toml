@@ -33,7 +33,6 @@ path = "src/bin/main.rs"
 rpc-types = { path = "crates/types/rpc" }
 tokio = { workspace = true }
 anyhow = { workspace = true }
-uuid = { workspace = true }
 tonic = { workspace = true }
 tonic-reflection = { workspace = true }
 hex = { workspace = true }
@@ -50,7 +49,6 @@ path = "src/lib.rs"
 rpc = { path = "crates/types/rpc" }
 tokio = { version = "1.0", features = ["full"] }
 anyhow = "1.0"
-uuid = { version = "1.0", features = ["v4"] }
 http = "1.0"
 hex = "0.4"
 chrono = "0.4"

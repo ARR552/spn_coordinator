@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use tokio::sync::{Mutex, mpsc};
 use tonic::{transport::Server, Request, Response, Status};
 use tonic_reflection::server::{Builder as ReflBuilder};
-use uuid::Uuid;
 use rand::random;
 
 /// Real gRPC service implementation for ProverNetwork
@@ -24,7 +23,7 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         println!("Received proof request: {:?}", req);
         
         // Generate a unique request ID
-        let request_id = Uuid::new_v4().as_bytes().to_vec();
+        let request_id = random::<[u8; 32]>().to_vec();
         // Create a response
         let tx_hash_bytes = random::<[u8; 32]>().to_vec();
         let response = RequestProofResponse {
@@ -124,7 +123,13 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
     type SubscribeProofRequestsStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<ProofRequest, Status>> + Send>>;
 
     async fn subscribe_proof_requests(&self, _request: Request<GetFilteredProofRequestsRequest>) -> Result<Response<Self::SubscribeProofRequestsStream>, Status> {
-        Err(Status::unimplemented("subscribe_proof_requests not implemented"))
+        // TODO implemente the filtering logic
+        let requests = self.requests.lock().await;
+        let all_requests: Vec<ProofRequest> = requests.values().map(|(req, _)| req.clone()).collect();
+        drop(requests);
+        
+        let stream = tokio_stream::iter(all_requests.into_iter().map(Ok));
+        Ok(Response::new(Box::pin(stream)))
     }
 
     async fn get_search_results(&self, _request: Request<GetSearchResultsRequest>) -> Result<Response<GetSearchResultsResponse>, Status> {
