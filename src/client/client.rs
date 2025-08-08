@@ -100,7 +100,7 @@ pub async fn run_client() -> Result<()> {
         println!("Client received response: TX Hash = {}", hex::encode(&response_inner.tx_hash));
         
         if let Some(body) = &response_inner.body {
-            println!("Request ID: {}", hex::encode(&body.request_id[..8]));
+            println!("Request ID: {}", hex::encode(&body.request_id));
             
             // Check status
             let status_request = GetProofRequestStatusRequest {
@@ -110,7 +110,7 @@ pub async fn run_client() -> Result<()> {
             let status_response = client.get_proof_request_status(status_request).await?;
             let status_inner = status_response.into_inner();
             
-            println!("Status check:");
+            println!("Status check: {:?}", status_inner);
             println!("  Fulfillment: {:?}", FulfillmentStatus::try_from(status_inner.fulfillment_status).unwrap_or(FulfillmentStatus::UnspecifiedFulfillmentStatus));
             println!("  Execution: {:?}", ExecutionStatus::try_from(status_inner.execution_status).unwrap_or(ExecutionStatus::UnspecifiedExecutionStatus));
             if let Some(proof_uri) = &status_inner.proof_uri {

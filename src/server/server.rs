@@ -5,12 +5,13 @@ use tokio::sync::{Mutex, mpsc};
 use tonic::{transport::Server, Request, Response, Status};
 use tonic_reflection::server::{Builder as ReflBuilder};
 use uuid::Uuid;
+use rand::random;
 
 /// Real gRPC service implementation for ProverNetwork
 #[derive(Debug, Default)]
 pub struct ProverNetworkServiceImpl {
-    /// Store proof requests in memory (in real implementation this would be a database)  
-    requests: Mutex<HashMap<Vec<u8>, (RequestProofRequest, GetProofRequestStatusResponse)>>,
+    /// TODO Store proof requests in memory (in real implementation this would be a database)  
+    requests: Mutex<HashMap<Vec<u8>, (ProofRequest, GetProofRequestStatusResponse)>>,
 }
 
 #[tonic::async_trait]
@@ -20,14 +21,14 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         request: Request<RequestProofRequest>,
     ) -> Result<Response<RequestProofResponse>, Status> {
         let req = request.into_inner();
-        println!("Received proof request");
+        println!("Received proof request: {:?}", req);
         
         // Generate a unique request ID
         let request_id = Uuid::new_v4().as_bytes().to_vec();
-        
         // Create a response
+        let tx_hash_bytes = random::<[u8; 32]>().to_vec();
         let response = RequestProofResponse {
-            tx_hash: b"mock_tx_hash_12345".to_vec(),
+            tx_hash: tx_hash_bytes.clone(),
             body: Some(RequestProofResponseBody {
                 request_id: request_id.clone(),
             }),
@@ -38,14 +39,34 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
             fulfillment_status: FulfillmentStatus::Requested as i32,
             execution_status: ExecutionStatus::Unexecuted as i32,
             request_tx_hash: response.tx_hash.clone(),
-            deadline: 3600, // 1 hour from now (in real app, use proper timestamp)
+            deadline: req.body.as_ref().map(|b| b.deadline).unwrap_or_default(),
             fulfill_tx_hash: None,
             proof_uri: None,
             public_values_hash: None,
             proof_public_uri: None,
         };
-        
-        self.requests.lock().await.insert(request_id, (req, status_response));
+        let now = chrono::Utc::now().timestamp() as u64;
+        let proof_request = ProofRequest {
+                request_id: request_id.clone(),
+                vk_hash: req.body.as_ref().map(|b| b.vk_hash.clone()).unwrap_or_default(),
+                version: req.body.as_ref().map(|b| b.version.clone()).unwrap_or_default(),
+                mode:    req.body.as_ref().map(|b| b.mode.clone()).unwrap_or_default(),
+                strategy: req.body.as_ref().map(|b| b.strategy.clone()).unwrap_or_default(),
+                stdin_uri: req.body.as_ref().map(|b| b.stdin_uri.clone()).unwrap_or_default(),
+                deadline: req.body.as_ref().map(|b| b.deadline.clone()).unwrap_or_default(),
+                cycle_limit: req.body.as_ref().map(|b| b.cycle_limit.clone()).unwrap_or_default(),
+                fulfillment_status: status_response.fulfillment_status.clone(),
+                execution_status: status_response.execution_status.clone(),
+                created_at: now,
+                updated_at: now,
+                tx_hash: response.tx_hash.clone(),
+                public_values_hash: req.body.as_ref().map(|b| b.public_values_hash.clone()).unwrap_or_default(),
+                gas_limit: req.body.as_ref().map(|b| b.gas_limit.clone()).unwrap_or_default(),
+                min_auction_period: req.body.as_ref().map(|b| b.min_auction_period.clone()).unwrap_or_default(),
+                whitelist: req.body.as_ref().map(|b| b.whitelist.clone()).unwrap_or_default(),
+                ..Default::default()
+            };
+        self.requests.lock().await.insert(request_id, (proof_request, status_response));
         
         Ok(Response::new(response))
     }
@@ -79,11 +100,20 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
     }
 
     async fn get_proof_request_details(&self, _request: Request<GetProofRequestDetailsRequest>) -> Result<Response<GetProofRequestDetailsResponse>, Status> {
-        Err(Status::unimplemented("get_proof_request_details not implemented"))
+        let requests = self.requests.lock().await;
+        if let Some((request, _)) = requests.get(&_request.into_inner().request_id) {            
+            let response = GetProofRequestDetailsResponse {
+                request: Some(request.clone()),
+            };
+            Ok(Response::new(response))
+        } else {
+            Err(Status::not_found("Proof request not found"))
+        }
     }
 
     async fn get_filtered_proof_requests(&self, _request: Request<GetFilteredProofRequestsRequest>) -> Result<Response<GetFilteredProofRequestsResponse>, Status> {
         println!("Received get_filtered_proof_requests request: {:?}", _request.get_ref());
+        // TODO
         Ok(Response::new(GetFilteredProofRequestsResponse {
             requests: vec![],
         }))
