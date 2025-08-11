@@ -11,7 +11,8 @@ rpc-types = { path = "../../crates/types/rpc" }
 tonic = { version = "0.14.1", features = ["tls-ring", "tls-native-roots"] }
 tokio = { version = "1.0", features = ["full"] }
 hex = "0.4"
-uuid = { version = "1.0", features = ["v4"] }
+uuid = { version = "1.18.0", features = ["v4"] }
+clap = { version = "4.0", features = ["derive"] }
 
 [[bin]]
 name = "grpc_client_tool"
