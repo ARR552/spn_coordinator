@@ -1,6 +1,10 @@
 use anyhow::Result;
 use rpc_types::*;
 use tonic::{Request, Response, Status, transport::{Channel, Endpoint}};
+use prost::Message;
+use ethers::utils::keccak256;
+use ethers::signers::{LocalWallet, Signer};
+use std::str::FromStr;
 
 /// Real gRPC client that makes actual gRPC calls
 pub struct ProverNetworkClient {
@@ -31,34 +35,57 @@ impl ProverNetworkClient {
     }
 }
 
+async fn sign_body(wallet: &LocalWallet, encoded_message: Vec<u8>) -> anyhow::Result<Vec<u8>> {
+    // 2. EIP-191 prefix
+    let prefix = format!("\x19Ethereum Signed Message:\n{}", encoded_message.len());
+    let mut prefixed = prefix.into_bytes();
+    prefixed.extend_from_slice(&encoded_message);
+
+    // 3. Hash
+    let hash = keccak256(prefixed);
+
+    // 4. Sign
+    let sig = wallet.sign_hash(hash.into())?;
+
+    // Return as raw r||s||v bytes
+    Ok(sig.to_vec())
+}
+
 /// Create a sample RequestProofRequest with correct field names
-pub fn create_sample_request() -> RequestProofRequest {
-    RequestProofRequest {
+pub async fn create_sample_request() -> anyhow::Result<RequestProofRequest> {
+    let wallet = LocalWallet::from_str("0xe5d76acbffb5be6d87002e2cd5622b6dfe715f73ac60c613f14ba2d3f735c20b")?;
+    let b = RequestProofRequestBody {
+        nonce: 1,
+        vk_hash: hex::decode("00199e4c35364a8ed49c9fac0f0940aa555ce166aafc1ccb24f57d245f9c962c").unwrap(),
+        version: "sp1-v5.0.0".to_string(),
+        mode: ProofMode::Plonk as i32,
+        strategy: FulfillmentStrategy::Reserved as i32,
+        stdin_uri: "s3://spn-artifacts-production3/stdins/artifact_01k1zkd4ntf21bcqgp5539zb9a".to_string(),
+        deadline: 1754481839, // Mock timestamp
+        cycle_limit: 55869569,
+        gas_limit: 1000000000,
+        min_auction_period: 60,
+        whitelist: vec![],
+        domain: b"mock_domain".to_vec(),
+        auctioneer: hex::decode("d8d77442e6dc01d11fd7dcfa230198253f5f76ee").unwrap(),
+        executor: b"mock_executor".to_vec(),
+        verifier: b"mock_verifier".to_vec(),
+        public_values_hash: Some(hex::decode("0068e255db4186f38c1da5d71ad3edafc0b4373d8131b47626f6e2d5a8e8fe98").unwrap()),
+        base_fee: "1000000000000000000".to_string(), // 1 ETH in wei
+        max_price_per_pgu: "1000000000".to_string(), // 1 Gwei
+        variant: TransactionVariant::RequestVariant as i32,
+        treasury: b"mock_treasury".to_vec(),
+    };
+    let mut buf = Vec::new();
+    b.encode(&mut buf).expect("prost encode failed");
+    let signature = sign_body(&wallet, buf).await?;
+
+    // let sig: Vec<u8> = b.sign(&signer).into();
+    Ok(RequestProofRequest {
         format: MessageFormat::Json as i32,
-        signature: b"mock_signature".to_vec(),
-        body: Some(RequestProofRequestBody {
-            nonce: 1,
-            vk_hash: b"mock_vk_hash".to_vec(),
-            version: "1.0.0".to_string(),
-            mode: ProofMode::Core as i32,
-            strategy: FulfillmentStrategy::Hosted as i32,
-            stdin_uri: "https://example.com/stdin".to_string(),
-            deadline: 1234567890, // Mock timestamp
-            cycle_limit: 1000000,
-            gas_limit: 500000,
-            min_auction_period: 0,
-            whitelist: vec![],
-            domain: b"mock_domain".to_vec(),
-            auctioneer: b"mock_auctioneer".to_vec(),
-            executor: b"mock_executor".to_vec(),
-            verifier: b"mock_verifier".to_vec(),
-            public_values_hash: Some(b"mock_public_values_hash".to_vec()),
-            base_fee: "1000000000000000000".to_string(), // 1 ETH in wei
-            max_price_per_pgu: "1000000000".to_string(), // 1 Gwei
-            variant: TransactionVariant::RequestVariant as i32,
-            treasury: b"mock_treasury".to_vec(),
-        }),
-    }
+        signature: signature,
+        body: Some(b),
+    })
 }
 
 /// Client function that connects to the server
@@ -76,7 +103,7 @@ pub async fn run_client() -> Result<()> {
         println!("\n--- Client Request {} ---", i);
         
         // Create a different sample request for each iteration
-        let mut request = create_sample_request();
+        let mut request = create_sample_request().await?;
         if let Some(body) = &mut request.body {
             body.mode = match i {
                 1 => ProofMode::Core as i32,

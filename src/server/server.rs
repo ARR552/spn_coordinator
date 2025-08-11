@@ -4,7 +4,11 @@ use std::collections::HashMap;
 use tokio::sync::{Mutex, mpsc};
 use tonic::{transport::Server, Request, Response, Status};
 use tonic_reflection::server::{Builder as ReflBuilder};
+use ethers_core::types::{Signature};
+use ethers_core::utils::hash_message; // adds the EIP-191 prefix
+use eyre;
 use rand::random;
+use prost::Message;
 
 /// Real gRPC service implementation for ProverNetwork
 #[derive(Debug, Default)]
@@ -20,7 +24,7 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         request: Request<RequestProofRequest>,
     ) -> Result<Response<RequestProofResponse>, Status> {
         let req = request.into_inner();
-        // println!("Received proof request: {:?}", req);
+        println!("Signature received: {:?}", req.signature);
         
         // Generate a unique request ID
         let request_id = random::<[u8; 32]>().to_vec();
@@ -44,6 +48,12 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
             public_values_hash: None,
             proof_public_uri: None,
         };
+        let requester = match req.body.as_ref() {
+            Some(body) => recover_signer_addr(req.format, body, &req.signature)
+                .map_err(|e| Status::invalid_argument(format!("Failed to recover signer address: {}", e)))?,
+            None => return Err(Status::invalid_argument("Request body is required")),
+        };
+        println!("Recovered requester address: {:?}", hex::encode(&requester));
         let now = chrono::Utc::now().timestamp() as u64;
         let proof_request = ProofRequest {
                 request_id: request_id.clone(),
@@ -63,6 +73,7 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
                 gas_limit: req.body.as_ref().map(|b| b.gas_limit.clone()).unwrap_or_default(),
                 min_auction_period: req.body.as_ref().map(|b| b.min_auction_period.clone()).unwrap_or_default(),
                 whitelist: req.body.as_ref().map(|b| b.whitelist.clone()).unwrap_or_default(),
+                requester: requester,
                 ..Default::default()
             };
         self.requests.lock().await.insert(request_id, (proof_request, status_response));
@@ -584,4 +595,76 @@ pub async fn run_server(mut shutdown_rx: mpsc::Receiver<()>) -> Result<()> {
     
     println!("Server shutdown complete");
     Ok(())
+}
+
+// pub fn recover_address_from_personal_sign(message: impl AsRef<[u8]>, sig_hex: &str) -> Result<Address> {
+//     // Parse 0x… signature; v can be 27/28 or 0/1 — ethers handles both.
+//     let sig = Signature::from_str(sig_hex)?;
+//     // Keccak256("\x19Ethereum Signed Message:\n{len(m)}" || m)
+//     let digest = hash_message(message);
+//     // Recover the address that signed the digest
+//     let addr = sig.recover(digest)?;
+//     Ok(addr)
+// }
+
+fn encode_body_for_signing(format: i32, body: &RequestProofRequestBody) -> eyre::Result<Vec<u8>> {
+    let fmt = MessageFormat::try_from(format).unwrap_or(MessageFormat::Binary);
+    match fmt {
+        MessageFormat::Binary => {
+            // Protobuf canonical binary
+            let mut buf = Vec::new();
+            body.encode(&mut buf)?;
+            Ok(buf)
+        }
+        // MessageFormat::Json => {
+        //     // Only use if your client truly signed JSON and both sides enforce a canonical form.
+        //     // If you control both ends, prefer Binary to avoid JSON canonicalization traps.
+        //     #[derive(Serialize)]
+        //     struct Canon<'a> {
+        //         nonce: u64,
+        //         vk_hash: &'a [u8],
+        //         version: &'a str,
+        //         mode: i32,
+        //         strategy: i32,
+        //         stdin_uri: &'a str,
+        //         deadline: u64,
+        //         cycle_limit: u64,
+        //         gas_limit: u64,
+        //     }
+        //     // Map your fields EXACTLY as the client did:
+        //     let c = Canon {
+        //         nonce: body.nonce,
+        //         vk_hash: &body.vk_hash,
+        //         version: &body.version,
+        //         mode: body.mode,
+        //         strategy: body.strategy,
+        //         stdin_uri: &body.stdin_uri,
+        //         deadline: body.deadline,
+        //         cycle_limit: body.cycle_limit,
+        //         gas_limit: body.gas_limit,
+        //     };
+        //     Ok(serde_json::to_vec(&c)?)
+        // }
+        // Fallbacks if your enum has others:
+        _ => {
+            // Default to protobuf binary unless you KNOW another format was used.
+            let mut buf = Vec::new();
+            body.encode(&mut buf)?;
+            Ok(buf)
+        }
+    }
+}
+
+fn recover_signer_addr(format: i32, body: &RequestProofRequestBody, sig_bytes: &[u8]) -> eyre::Result<Vec<u8>> {
+    // 3a. Reproduce the exact bytes the client signed
+    let msg_bytes = encode_body_for_signing(format, body)?;
+
+    // 3b. Apply EIP-191 prefix (Ethereum personal message format)
+    let msg_hash = hash_message(&msg_bytes); // This applies EIP-191 prefix and hashes
+
+    // 3c. Parse the signature and recover the address
+    let sig = Signature::try_from(sig_bytes)?;
+    let address = sig.recover(msg_hash)?;
+    let address_bytes = address.as_bytes().to_vec();
+    Ok(address_bytes)
 }
