@@ -1,5 +1,7 @@
 pub mod server;
-pub mod service;
+pub mod prover_network_service;
+pub mod artifacts_service;
 
 pub use server::*;
-pub use service::*;
+pub use prover_network_service::*;
+pub use artifacts_service::*;

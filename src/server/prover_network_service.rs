@@ -23,7 +23,7 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         request: Request<RequestProofRequest>,
     ) -> Result<Response<RequestProofResponse>, Status> {
         let req = request.into_inner();
-        println!("Server Signature received: {:?}", req.signature);
+        println!("Server Signature received: {:?}", hex::encode(&req.signature));
         
         // Generate a unique request ID
         let request_id = random::<[u8; 32]>().to_vec();
@@ -167,7 +167,7 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
     }
 
     async fn get_nonce(&self, _request: Request<GetNonceRequest>) -> Result<Response<GetNonceResponse>, Status> {
-        Err(Status::unimplemented("get_nonce not implemented"))
+        Ok(Response::new(GetNonceResponse { nonce: 0 }))
     }
 
     async fn set_account_name(&self, _request: Request<SetAccountNameRequest>) -> Result<Response<SetAccountNameResponse>, Status> {

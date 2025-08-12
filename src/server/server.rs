@@ -4,7 +4,8 @@ use tokio::sync::mpsc;
 use tonic::transport::{Server, ServerTlsConfig, Identity};
 use tonic_reflection::server::{Builder as ReflBuilder};
 
-use crate::server::service::ProverNetworkServiceImpl;
+use crate::server::prover_network_service::ProverNetworkServiceImpl;
+use crate::server::artifacts_service::ArtifactStoreServiceImpl;
 
 const PROTOS: &[u8] = include_bytes!("../../crates/types/rpc/src/generated/descriptor.bin");
 
@@ -13,7 +14,8 @@ pub async fn run_server(mut shutdown_rx: mpsc::Receiver<()>) -> Result<()> {
     println!("=== Starting gRPC Server ===");
     
     let addr = "127.0.0.1:50051".parse()?;
-    let service = ProverNetworkServiceImpl::default();
+    let prover_network_service = ProverNetworkServiceImpl::default();
+    let artifacts_service = ArtifactStoreServiceImpl::default();
     
     // build a descriptor set at compile-time with prost-build / tonic-prost-build
     // then include it here (PROTOS is &[u8])
@@ -21,17 +23,18 @@ pub async fn run_server(mut shutdown_rx: mpsc::Receiver<()>) -> Result<()> {
         .register_encoded_file_descriptor_set(PROTOS)
         .build_v1()?;
 
-    println!("ProverNetwork gRPC Server listening on {}", addr);
+    println!("GRPC Server listening on {}", addr);
     println!("Server will run until shutdown signal is received...");
     
-    let cert = tokio::fs::read("server.pem").await?;
-    let key  = tokio::fs::read("server.key").await?;
+    let cert = tokio::fs::read("testing-cert/server.pem").await?;
+    let key  = tokio::fs::read("testing-cert/server.key").await?;
     let identity = Identity::from_pem(cert, key);
 
-    // Create a real tonic gRPC server
+    // Create a real tonic gRPC server with both services
     let server = Server::builder()
         .tls_config(ServerTlsConfig::new().identity(identity))?
-        .add_service(prover_network_server::ProverNetworkServer::new(service))
+        .add_service(prover_network_server::ProverNetworkServer::new(prover_network_service))
+        .add_service(artifact_store_server::ArtifactStoreServer::new(artifacts_service))
         .add_service(reflection)
         .serve_with_shutdown(addr, async {
             shutdown_rx.recv().await;

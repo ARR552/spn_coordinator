@@ -17,7 +17,7 @@ impl ProverNetworkClient {
         // Load the CA certificate to verify the server certificate
         println!("Setting up TLS client configuration with proper CA...");
         
-        let ca_pem = std::fs::read("ca.pem")
+        let ca_pem = std::fs::read("testing-cert/ca.pem")
             .map_err(|e| format!("Failed to read CA certificate: {}", e))?;
         
         println!("Loaded CA certificate, size: {} bytes", ca_pem.len());
@@ -131,56 +131,38 @@ pub async fn run_client() -> Result<()> {
             anyhow::anyhow!("Failed to create client: {}", e)
         })?;
     
-    // Make multiple requests to demonstrate client-server interaction
-    for i in 1..=3 {
-        println!("\n--- Client Request {} ---", i);
+    println!("\n--- Client Request ---");
+    
+    // Create a different sample request for each iteration
+    let request = create_sample_request().await?;
+    
+    println!("Client sending proof request ");
+    let response = client.request_proof(request).await?;
+    let response_inner = response.into_inner();
+    
+    println!("Client received response: TX Hash = {}", hex::encode(&response_inner.tx_hash));
+    
+    if let Some(body) = &response_inner.body {
+        println!("Request ID: {}", hex::encode(&body.request_id));
         
-        // Create a different sample request for each iteration
-        let mut request = create_sample_request().await?;
-        if let Some(body) = &mut request.body {
-            body.mode = match i {
-                1 => ProofMode::Core as i32,
-                2 => ProofMode::Compressed as i32,
-                _ => ProofMode::Plonk as i32,
-            };
-            body.strategy = match i {
-                1 => FulfillmentStrategy::Hosted as i32,
-                2 => FulfillmentStrategy::Auction as i32,
-                _ => FulfillmentStrategy::Reserved as i32,
-            };
-            body.cycle_limit = 1000000 * i as u64;
-            body.gas_limit = 500000 * i as u64;
-            body.nonce = i as u64;
+        // Check status
+        let status_request = GetProofRequestStatusRequest {
+            request_id: body.request_id.clone(),
+        };
+        
+        let status_response = client.get_proof_request_status(status_request).await?;
+        let status_inner = status_response.into_inner();
+        
+        println!("Status check: {:?}", status_inner);
+        println!("  Fulfillment: {:?}", FulfillmentStatus::try_from(status_inner.fulfillment_status).unwrap_or(FulfillmentStatus::UnspecifiedFulfillmentStatus));
+        println!("  Execution: {:?}", ExecutionStatus::try_from(status_inner.execution_status).unwrap_or(ExecutionStatus::UnspecifiedExecutionStatus));
+        if let Some(proof_uri) = &status_inner.proof_uri {
+            println!("  Proof URI: {}", proof_uri);
         }
-        
-        println!("Client sending proof request #{}", i);
-        let response = client.request_proof(request).await?;
-        let response_inner = response.into_inner();
-        
-        println!("Client received response: TX Hash = {}", hex::encode(&response_inner.tx_hash));
-        
-        if let Some(body) = &response_inner.body {
-            println!("Request ID: {}", hex::encode(&body.request_id));
-            
-            // Check status
-            let status_request = GetProofRequestStatusRequest {
-                request_id: body.request_id.clone(),
-            };
-            
-            let status_response = client.get_proof_request_status(status_request).await?;
-            let status_inner = status_response.into_inner();
-            
-            println!("Status check: {:?}", status_inner);
-            println!("  Fulfillment: {:?}", FulfillmentStatus::try_from(status_inner.fulfillment_status).unwrap_or(FulfillmentStatus::UnspecifiedFulfillmentStatus));
-            println!("  Execution: {:?}", ExecutionStatus::try_from(status_inner.execution_status).unwrap_or(ExecutionStatus::UnspecifiedExecutionStatus));
-            if let Some(proof_uri) = &status_inner.proof_uri {
-                println!("  Proof URI: {}", proof_uri);
-            }
-        }
-        
-        // Wait between requests
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     }
+    
+    // Wait between requests
+    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     
     println!("\n=== Client Finished ===");
     Ok(())
