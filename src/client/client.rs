@@ -3,7 +3,7 @@ use rpc_types::*;
 use tonic::{Request, Response, Status, transport::{Channel, Endpoint, ClientTlsConfig}};
 use prost::Message;
 use std::time::Duration;
-use ethers::utils::keccak256;
+use ethers::{abi::token::LenientTokenizer, utils::keccak256};
 use ethers::signers::{LocalWallet};
 use std::str::FromStr;
 
@@ -26,20 +26,22 @@ impl ProverNetworkClient {
         let tls_config = ClientTlsConfig::new()
             .ca_certificate(tonic::transport::Certificate::from_pem(&ca_pem))
             .domain_name("localhost");
-        
+        let tls_activated = false; // Set to true if TLS is enabled
         println!("Attempting to connect with TLS to: {}", endpoint);
         
-        let channel: Channel = Endpoint::new(endpoint)
+        let mut endpoint = Endpoint::new(endpoint)
             .map_err(|e| format!("Invalid endpoint: {}", e))?
-            .tls_config(tls_config)
-            .map_err(|e| format!("TLS config error: {}", e))?
             .timeout(Duration::from_secs(15))
             .connect_timeout(Duration::from_secs(15))
             .keep_alive_while_idle(true)
             .http2_keep_alive_interval(Duration::from_secs(15))
             .keep_alive_timeout(Duration::from_secs(15))
-            .tcp_keepalive(Some(Duration::from_secs(30)))
-            .connect()
+            .tcp_keepalive(Some(Duration::from_secs(30)));
+        if tls_activated {
+            endpoint = endpoint.tls_config(tls_config).map_err(|e| format!("TLS config error: {}", e))?
+        }
+
+        let channel: Channel = endpoint.connect()
             .await
             .map_err(|e| format!("Connection failed: {}", e))?;
             
@@ -125,7 +127,7 @@ pub async fn run_client() -> Result<()> {
     // Wait a bit for server to start
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     
-    let mut client = ProverNetworkClient::new("https://127.0.0.1:50051".to_string()).await
+    let mut client = ProverNetworkClient::new("http://127.0.0.1:50051".to_string()).await
         .map_err(|e| {
             eprintln!("Detailed client creation error: {:?}", e);
             anyhow::anyhow!("Failed to create client: {}", e)

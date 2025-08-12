@@ -14,6 +14,7 @@ pub async fn run_server(mut shutdown_rx: mpsc::Receiver<()>) -> Result<()> {
     println!("=== Starting gRPC Server ===");
     
     let addr = "127.0.0.1:50051".parse()?;
+    let tls_activated = false; // Set to true if TLS is enabled
     let prover_network_service = ProverNetworkServiceImpl::default();
     let artifacts_service = ArtifactStoreServiceImpl::default();
     
@@ -31,17 +32,19 @@ pub async fn run_server(mut shutdown_rx: mpsc::Receiver<()>) -> Result<()> {
     let identity = Identity::from_pem(cert, key);
 
     // Create a real tonic gRPC server with both services
-    let server = Server::builder()
-        .tls_config(ServerTlsConfig::new().identity(identity))?
-        .add_service(prover_network_server::ProverNetworkServer::new(prover_network_service))
+    let mut server = Server::builder();
+    if tls_activated == true {
+        server = server.tls_config(ServerTlsConfig::new().identity(identity))?;
+    }
+    let s = server.add_service(prover_network_server::ProverNetworkServer::new(prover_network_service))
         .add_service(artifact_store_server::ArtifactStoreServer::new(artifacts_service))
         .add_service(reflection)
         .serve_with_shutdown(addr, async {
             shutdown_rx.recv().await;
             println!("Shutdown signal received, gracefully stopping server...");
         });
-    
-    if let Err(e) = server.await {
+
+    if let Err(e) = s.await {
         eprintln!("Server error: {}", e);
     }
     
