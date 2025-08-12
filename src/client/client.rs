@@ -1,9 +1,10 @@
 use anyhow::Result;
 use rpc_types::*;
-use tonic::{Request, Response, Status, transport::{Channel, Endpoint}};
+use tonic::{Request, Response, Status, transport::{Channel, Endpoint, ClientTlsConfig}};
 use prost::Message;
+use std::time::Duration;
 use ethers::utils::keccak256;
-use ethers::signers::{LocalWallet, Signer};
+use ethers::signers::{LocalWallet};
 use std::str::FromStr;
 
 /// Real gRPC client that makes actual gRPC calls
@@ -13,7 +14,36 @@ pub struct ProverNetworkClient {
 
 impl ProverNetworkClient {
     pub async fn new(endpoint: String) -> Result<Self, Box<dyn std::error::Error>> {
-        let channel = Endpoint::from_shared(endpoint)?.connect().await?;
+        // Load the CA certificate to verify the server certificate
+        println!("Setting up TLS client configuration with proper CA...");
+        
+        let ca_pem = std::fs::read("ca.pem")
+            .map_err(|e| format!("Failed to read CA certificate: {}", e))?;
+        
+        println!("Loaded CA certificate, size: {} bytes", ca_pem.len());
+        
+        // Configure TLS with the proper CA certificate
+        let tls_config = ClientTlsConfig::new()
+            .ca_certificate(tonic::transport::Certificate::from_pem(&ca_pem))
+            .domain_name("localhost");
+        
+        println!("Attempting to connect with TLS to: {}", endpoint);
+        
+        let channel: Channel = Endpoint::new(endpoint)
+            .map_err(|e| format!("Invalid endpoint: {}", e))?
+            .tls_config(tls_config)
+            .map_err(|e| format!("TLS config error: {}", e))?
+            .timeout(Duration::from_secs(15))
+            .connect_timeout(Duration::from_secs(15))
+            .keep_alive_while_idle(true)
+            .http2_keep_alive_interval(Duration::from_secs(15))
+            .keep_alive_timeout(Duration::from_secs(15))
+            .tcp_keepalive(Some(Duration::from_secs(30)))
+            .connect()
+            .await
+            .map_err(|e| format!("Connection failed: {}", e))?;
+            
+        println!("TLS connection established successfully");
         let client = prover_network_client::ProverNetworkClient::new(channel);
         Ok(Self { client })
     }
@@ -95,8 +125,11 @@ pub async fn run_client() -> Result<()> {
     // Wait a bit for server to start
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     
-    let mut client = ProverNetworkClient::new("http://127.0.0.1:50051".to_string()).await
-        .map_err(|e| anyhow::anyhow!("Failed to create client: {}", e))?;
+    let mut client = ProverNetworkClient::new("https://127.0.0.1:50051".to_string()).await
+        .map_err(|e| {
+            eprintln!("Detailed client creation error: {:?}", e);
+            anyhow::anyhow!("Failed to create client: {}", e)
+        })?;
     
     // Make multiple requests to demonstrate client-server interaction
     for i in 1..=3 {

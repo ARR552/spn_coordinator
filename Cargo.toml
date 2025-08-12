@@ -48,43 +48,43 @@ ethers = "2.0.14"
 [workspace.dependencies]
 rpc = { path = "crates/types/rpc" }
 tokio = { version = "1.0", features = ["full"] }
-anyhow = "1.0"
-http = "1.0"
+anyhow = "1.0.99"
+http = "1.3.1"
 hex = "0.4"
 chrono = "0.4"
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.12.22", features = ["json"] }
 prost-types = "0.14.0"
 prost-build = "0.14.0"
 prost = "0.14.0"
 serde = { version = "1.0.210", features = ["derive"] }
 serde_json = "1.0.104"
-alloy-signer = "1.0.23"
-alloy-signer-local = "1.0.23"
+alloy-signer = "1.0.24"
+alloy-signer-local = "1.0.24"
 alloy-primitives = { version = "1.0.0", features = ["k256"] }
 alloy-sol-types = "1.0.0"
 alloy-json-rpc = "1.0.23"
-alloy = { version = "1.0.23", features = [
+alloy = { version = "1.0.24", features = [
     "reqwest",
     "network",
     "providers",
     "sol-types",
     "rpc-types",
 ] }
-alloy-provider = { version = "0.14.0", default-features = false, features = [
+alloy-provider = { version = "1.0.24", default-features = false, features = [
     "reqwest",
     "reqwest-rustls-tls",
 ] }
-alloy-rpc-types = { version = "0.14.0", default-features = false, features = [
+alloy-rpc-types = { version = "1.0.24", default-features = false, features = [
     "eth",
 ] }
-alloy-rpc-client = { version = "0.14.0", default-features = false }
-alloy-transport = { version = "0.14.0", default-features = false }
-alloy-network = { version = "1.0.23", default-features = false }
+alloy-rpc-client = { version = "1.0.24", default-features = false }
+alloy-transport = { version = "1.0.24", default-features = false }
+alloy-network = { version = "1.0.24", default-features = false }
 alloy-rlp = { version = "0.3.3", default-features = false }
-thiserror = "2.0.12"
-tonic = { version = "0.14", features = ["transport", "gzip"] }
-tonic-reflection = "0.14"
-tonic-prost-build = "0.14.0"
-tonic-prost = "0.14"
+thiserror = "2.0.14"
+tonic = { version = "0.14.1", features = ["transport", "gzip", "tls-ring", "tls-native-roots"] }
+tonic-reflection = "0.14.1"
+tonic-prost-build = "0.14.1"
+tonic-prost = "0.14.1"
 bytes = "1"
 async-trait = "0.1"
