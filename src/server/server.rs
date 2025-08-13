@@ -13,7 +13,7 @@ const PROTOS: &[u8] = include_bytes!("../../crates/types/rpc/src/generated/descr
 pub async fn run_server(mut shutdown_rx: mpsc::Receiver<()>) -> Result<()> {
     println!("=== Starting gRPC Server ===");
     
-    let addr = "127.0.0.1:50051".parse()?;
+    let addr = "0.0.0.0:50051".parse()?;
     let tls_activated = false; // Set to true if TLS is enabled
     let prover_network_service = ProverNetworkServiceImpl::default();
     let artifacts_service = ArtifactStoreServiceImpl::default();

@@ -1,0 +1,11 @@
+services:
+  spn-coordinator:
+    # build:
+    #   context: .
+    #   dockerfile: ./Dockerfile
+    image: arr551/spn-coordinator:v0.0.1-dev
+    container_name: spn-coordinator
+    ports:
+      - "50051:50051"
+    restart: unless-stopped
+

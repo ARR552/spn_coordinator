@@ -3,11 +3,8 @@ use rpc_types::*;
 use std::collections::HashMap;
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
-use ethers_core::types::{Signature};
-use ethers_core::utils::hash_message; // adds the EIP-191 prefix
 use eyre;
 use rand::random;
-use prost::Message;
 
 /// Real gRPC service implementation for ArtifactStore
 #[derive(Debug, Default)]
@@ -101,7 +98,7 @@ fn _verify_artifact_signature(signature: &[u8]) -> Result<Vec<u8>, eyre::Error> 
     // 1. Define the message format for artifact creation
     // 2. Implement the same signing/verification logic as in prover_network_service.rs
     // 3. Recover the signer address from the signature
-    
+    println!("Verifying artifact signature: {:?}", hex::encode(signature));
     // For now, return a mock address
     let mock_address = vec![0x42; 20]; // Mock 20-byte address
     Ok(mock_address)

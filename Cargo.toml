@@ -15,7 +15,7 @@ keywords = ["sp1", "succinct", "zero-knowledge", "zkvm"]
 categories = ["cryptography"]
 
 [package]
-name = "coordinator_rust"
+name = "spn_coordinator"
 version = { workspace = true }
 edition = { workspace = true }
 license = { workspace = true }
@@ -25,7 +25,7 @@ keywords = { workspace = true }
 categories = { workspace = true }
 
 [[bin]]
-name = "coordinator_rust"
+name = "spn_coordinator"
 path = "src/bin/main.rs"
 
 [dependencies]

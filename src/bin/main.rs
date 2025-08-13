@@ -1,6 +1,6 @@
 use anyhow::Result;
-use coordinator_rust::client::run_client;
-use coordinator_rust::server::run_server;
+use spn_coordinator::client::run_client;
+use spn_coordinator::server::run_server;
 use tokio::sync::mpsc;
 use tokio::signal;
 

@@ -3,7 +3,7 @@ use rpc_types::*;
 use tonic::{Request, Response, Status, transport::{Channel, Endpoint, ClientTlsConfig}};
 use prost::Message;
 use std::time::Duration;
-use ethers::{abi::token::LenientTokenizer, utils::keccak256};
+use ethers::{utils::keccak256};
 use ethers::signers::{LocalWallet};
 use std::str::FromStr;
 
@@ -27,7 +27,6 @@ impl ProverNetworkClient {
             .ca_certificate(tonic::transport::Certificate::from_pem(&ca_pem))
             .domain_name("localhost");
         let tls_activated = false; // Set to true if TLS is enabled
-        println!("Attempting to connect with TLS to: {}", endpoint);
         
         let mut endpoint = Endpoint::new(endpoint)
             .map_err(|e| format!("Invalid endpoint: {}", e))?
@@ -45,7 +44,6 @@ impl ProverNetworkClient {
             .await
             .map_err(|e| format!("Connection failed: {}", e))?;
             
-        println!("TLS connection established successfully");
         let client = prover_network_client::ProverNetworkClient::new(channel);
         Ok(Self { client })
     }
