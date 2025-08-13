@@ -105,7 +105,26 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
     }
 
     async fn fail_fulfillment(&self, _request: Request<FailFulfillmentRequest>) -> Result<Response<FailFulfillmentResponse>, Status> {
-        Err(Status::unimplemented("fail_fulfillment not implemented"))
+        // TODO validate signature
+        // Extract body safely from Option
+        let body = _request.into_inner().body.ok_or_else(|| Status::invalid_argument("Request body is required"))?;
+        
+        let mut requests = self.requests.lock().await;
+        if let Some((proof_request, status)) = requests.get_mut(&body.request_id) {
+            // Update fulfillment status to Unfulfillable
+            status.fulfillment_status = FulfillmentStatus::Unfulfillable as i32;
+            let now = chrono::Utc::now().timestamp() as u64;
+            proof_request.fulfillment_status = status.fulfillment_status;
+            proof_request.updated_at = now;
+            proof_request.error = body.error.unwrap_or(0); // Unwrap Option<i32> to i32, default to 0
+            
+            let response = FailFulfillmentResponse {
+                tx_hash: proof_request.tx_hash.clone(),
+                body: Some(FailFulfillmentResponseBody {}),
+            };
+            return Ok(Response::new(response));
+        }
+        Err(Status::not_found("Proof request not found"))
     }
 
     async fn get_proof_request_details(&self, _request: Request<GetProofRequestDetailsRequest>) -> Result<Response<GetProofRequestDetailsResponse>, Status> {
