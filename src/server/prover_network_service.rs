@@ -128,13 +128,19 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
     }
 
     async fn get_proof_request_details(&self, _request: Request<GetProofRequestDetailsRequest>) -> Result<Response<GetProofRequestDetailsResponse>, Status> {
+        println!("Server received get_proof_request_details request");
+        let req_inner = _request.into_inner();
+        println!("Request ID received: {:?}", hex::encode(&req_inner.request_id));
+        
         let requests = self.requests.lock().await;
-        if let Some((request, _)) = requests.get(&_request.into_inner().request_id) {            
+        if let Some((request, _)) = requests.get(&req_inner.request_id) {            
             let response = GetProofRequestDetailsResponse {
                 request: Some(request.clone()),
             };
+            println!("Found request, returning details");
             Ok(Response::new(response))
         } else {
+            println!("Request not found in storage");
             Err(Status::not_found("Proof request not found"))
         }
     }
@@ -216,6 +222,26 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
     }
 
     async fn get_program(&self, _request: Request<GetProgramRequest>) -> Result<Response<GetProgramResponse>, Status> {
+        let request_inner = _request.into_inner();
+        println!("Received get_program request: {:?}", hex::encode(&request_inner.vk_hash));
+        // Check if the requested vk_hash matches our hardcoded program
+        let requested_vk_hash = hex::encode(&request_inner.vk_hash);
+        if requested_vk_hash == "005d763c1b4e00563d156f9ba8cc60561014267a5d3f5f16e2b8a47fa9dfe173" {
+            let program = rpc_types::Program {
+                vk_hash: hex::decode("005d763c1b4e00563d156f9ba8cc60561014267a5d3f5f16e2b8a47fa9dfe173").unwrap_or_default(),
+                vk: hex::decode("18c19a61c29c213edfea9e0e5f7b35610f968f43282c5002be4fd123980b3a4644a92d00fecded6ac7efd272fca32d3f487d864ef12bf638be069326153b79650edd32370c739032ac70962f7b08ef1376627c701343d63742584c2c0200000000000000070000000000000050726f6772616d1400000000000000010000000e0000000000000000001000000000000400000000000000427974651000000000000000010000000b0000000000000000000100000000000200000000000000070000000000000050726f6772616d00000000000000000400000000000000427974650100000000000000").unwrap_or_default(),
+                program_uri: "s3://spn-artifacts-production3/programs/artifact_01jxd32w11f7hvrzn3rfdfqj3e".to_string(),
+                name: None,
+                owner: hex::decode("660a426ff3846756aec0bda55324271bb4a21060").unwrap_or_default(),
+                created_at: 1749564880,
+            };
+            
+            let response = GetProgramResponse {
+                program: Some(program),
+            };
+            
+            return Ok(Response::new(response));
+        }
         Err(Status::unimplemented("get_program not implemented"))
     }
 

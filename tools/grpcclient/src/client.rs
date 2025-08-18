@@ -4,7 +4,7 @@ use std::time::Duration;
 use tonic::{Request, Response, Status, transport::{Channel, Endpoint}};
 use clap::Parser;
 
-use crate::commands::{run_proof_request_details, run_proof_request_status};
+use crate::commands::{run_proof_request_details, run_proof_request_status, run_get_program};
 
 /// Real gRPC client that makes actual gRPC calls
 pub struct ProverNetworkClient {
@@ -49,6 +49,13 @@ impl ProverNetworkClient {
         println!("Client requesting proof request details for: {:?}", hex::encode(&request.request_id));
         self.client.get_proof_request_details(Request::new(request)).await
     }
+
+    pub async fn get_program(
+        &mut self,
+        request: GetProgramRequest,
+    ) -> Result<Response<GetProgramResponse>, Status> {
+        self.client.get_program(Request::new(request)).await
+    }
 }
 
 /// Client function that connects to the server
@@ -82,6 +89,13 @@ pub async fn run_client() -> Result<()> {
             #[arg(long, default_value = "4e94a6a152d166b9c26faf27e406ead95b60aee02da50294e10a46131fbb9f5f")]
             request_id: String,
         },
+        /// Get program information
+        GetProgram {
+            #[arg(long, default_value = "https://rpc-production.succinct.xyz")]
+            url: String,
+            #[arg(long)]
+            vk_hash: String,
+        },
     }
 
     let cli = Cli::parse();
@@ -92,6 +106,9 @@ pub async fn run_client() -> Result<()> {
         }
         Commands::ProofRequestStatus { url, request_id } => {
             run_proof_request_status(url, request_id).await?;
+        }
+        Commands::GetProgram { url, vk_hash } => {
+            run_get_program(url, vk_hash).await?;
         }
     }
     
