@@ -36,7 +36,7 @@ impl HttpServer {
             .route("/health", get(health_check))
             .with_state(storage);
 
-        let addr = format!("127.0.0.1:{}", self.port);
+        let addr = format!("0.0.0.0:{}", self.port);
         println!("HTTP: Starting HTTP server on {}", addr);
 
         let listener = tokio::net::TcpListener::bind(&addr).await?;

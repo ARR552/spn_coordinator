@@ -7,5 +7,6 @@ services:
     container_name: spn-coordinator
     ports:
       - "50051:50051"
+      - "8082:8082"
     restart: unless-stopped
 

@@ -77,7 +77,7 @@ fn generate_artifact_uri(artifact_type: &ArtifactType, artifact_id: &str) -> Str
 fn generate_presigned_url(artifact_id: &str) -> String {
     // Generate a URL pointing to our HTTP server
     // The client will use this URL to PUT the artifact data
-    format!("http://127.0.0.1:8082/artifacts/{}", artifact_id)
+    format!("http://spn-coordinator-001:8082/artifacts/{}", artifact_id)
 }
 
 /// Verify signature for artifact creation (placeholder implementation)
