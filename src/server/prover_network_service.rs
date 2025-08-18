@@ -23,7 +23,8 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         request: Request<RequestProofRequest>,
     ) -> Result<Response<RequestProofResponse>, Status> {
         let req = request.into_inner();
-        println!("Server Signature received: {:?}", hex::encode(&req.signature));
+        println!("PROVER_NETWORK: Server Request params: {:?}", req);
+        println!("PROVER_NETWORK: Server Signature received: {:?}", hex::encode(&req.signature));
         
         // Generate a unique request ID
         let request_id = random::<[u8; 32]>().to_vec();
@@ -52,7 +53,7 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
                 .map_err(|e| Status::invalid_argument(format!("Failed to recover signer address: {}", e)))?,
             None => return Err(Status::invalid_argument("Request body is required")),
         };
-        println!("Server Recovered requester address: {:?}", hex::encode(&requester));
+        println!("PROVER_NETWORK: Server Recovered requester address: {:?}", hex::encode(&requester));
         let now = chrono::Utc::now().timestamp() as u64;
         let proof_request = ProofRequest {
                 request_id: request_id.clone(),
@@ -85,7 +86,7 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         request: Request<GetProofRequestStatusRequest>,
     ) -> Result<Response<GetProofRequestStatusResponse>, Status> {
         let req = request.into_inner();
-        println!("Server Received status request for ID: {:?}", hex::encode(&req.request_id));
+        println!("PROVER_NETWORK: Server Received status request for ID: {:?}", hex::encode(&req.request_id));
         
         let requests = self.requests.lock().await;
         if let Some((_, status)) = requests.get(&req.request_id) {
@@ -128,25 +129,25 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
     }
 
     async fn get_proof_request_details(&self, _request: Request<GetProofRequestDetailsRequest>) -> Result<Response<GetProofRequestDetailsResponse>, Status> {
-        println!("Server received get_proof_request_details request");
+        println!("PROVER_NETWORK: Server received get_proof_request_details request");
         let req_inner = _request.into_inner();
-        println!("Request ID received: {:?}", hex::encode(&req_inner.request_id));
+        println!("PROVER_NETWORK: Request ID received: {:?}", hex::encode(&req_inner.request_id));
         
         let requests = self.requests.lock().await;
         if let Some((request, _)) = requests.get(&req_inner.request_id) {            
             let response = GetProofRequestDetailsResponse {
                 request: Some(request.clone()),
             };
-            println!("Found request, returning details");
+            println!("PROVER_NETWORK: Found request, returning details");
             Ok(Response::new(response))
         } else {
-            println!("Request not found in storage");
+            println!("PROVER_NETWORK: Request not found in storage");
             Err(Status::not_found("Proof request not found"))
         }
     }
 
     async fn get_filtered_proof_requests(&self, _request: Request<GetFilteredProofRequestsRequest>) -> Result<Response<GetFilteredProofRequestsResponse>, Status> {
-        // println!("Received get_filtered_proof_requests request: {:?}", _request.get_ref());
+        println!("PROVER_NETWORK: Received get_filtered_proof_requests request: {:?}", _request.get_ref());
         // TODO implemente the filtering logic
         let requests = self.requests.lock().await;
         let all_requests: Vec<ProofRequest> = requests.values().map(|(req, _)| req.clone()).collect();
@@ -216,14 +217,14 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
     }
 
     async fn get_owner(&self, _request: Request<GetOwnerRequest>) -> Result<Response<GetOwnerResponse>, Status> {
-        // println!("Received get_owner request: {:?}", _request.get_ref());
+        // println!("PROVER_NETWORK: Received get_owner request: {:?}", _request.get_ref());
         let acct = _request.into_inner().address.to_ascii_lowercase();
         Ok(Response::new(GetOwnerResponse { owner: acct.clone() }))
     }
 
     async fn get_program(&self, _request: Request<GetProgramRequest>) -> Result<Response<GetProgramResponse>, Status> {
         let request_inner = _request.into_inner();
-        println!("Received get_program request: {:?}", hex::encode(&request_inner.vk_hash));
+        println!("PROVER_NETWORK: Received get_program request: {:?}", hex::encode(&request_inner.vk_hash));
         // Check if the requested vk_hash matches our hardcoded program
         let requested_vk_hash = hex::encode(&request_inner.vk_hash);
         if requested_vk_hash == "005d763c1b4e00563d156f9ba8cc60561014267a5d3f5f16e2b8a47fa9dfe173" {

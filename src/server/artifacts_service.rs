@@ -21,7 +21,7 @@ impl artifact_store_server::ArtifactStore for ArtifactStoreServiceImpl {
         request: Request<CreateArtifactRequest>,
     ) -> Result<Response<CreateArtifactResponse>, Status> {
         let req = request.into_inner();
-        println!("Server received create_artifact request with signature: {:?}", hex::encode(&req.signature));
+        println!("ARTIFACT: Server received create_artifact request with signature: {:?}", hex::encode(&req.signature));
         
         // Validate the artifact type
         let artifact_type = ArtifactType::try_from(req.artifact_type)
@@ -35,8 +35,8 @@ impl artifact_store_server::ArtifactStore for ArtifactStoreServiceImpl {
         let artifact_uri = generate_artifact_uri(&artifact_type, &artifact_id);
         let presigned_url = generate_presigned_url(&artifact_type, &artifact_id);
         
-        println!("Generated artifact URI: {}", artifact_uri);
-        println!("Generated presigned URL: {}", presigned_url);
+        println!("ARTIFACT: Generated artifact URI: {}", artifact_uri);
+        println!("ARTIFACT: Generated presigned URL: {}", presigned_url);
         
         // Store the artifact metadata
         self.artifacts.lock().await.insert(
@@ -49,7 +49,7 @@ impl artifact_store_server::ArtifactStore for ArtifactStoreServiceImpl {
             artifact_presigned_url: presigned_url,
         };
         
-        println!("Successfully created artifact: {}", artifact_uri);
+        println!("ARTIFACT: Successfully created artifact: {}", artifact_uri);
         Ok(Response::new(response))
     }
 }
@@ -70,7 +70,7 @@ fn generate_artifact_uri(artifact_type: &ArtifactType, artifact_id: &str) -> Str
         ArtifactType::UnspecifiedArtifactType => "unspecified",
     };
     
-    format!("s3://spn-artifacts-production3/{}/artifact_{}", type_prefix, artifact_id)
+    format!("s3://fake-spn-artifacts-production3/{}/artifact_{}", type_prefix, artifact_id)
 }
 
 /// Generate a presigned URL for artifact upload
@@ -86,7 +86,7 @@ fn generate_presigned_url(artifact_type: &ArtifactType, artifact_id: &str) -> St
     // Generate a mock presigned URL (in real implementation this would be from AWS S3)
     let expires_timestamp = chrono::Utc::now().timestamp() + 3600; // 1 hour from now
     format!(
-        "https://spn-artifacts-production3.s3.amazonaws.com/{}/artifact_{}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=mock_signature_{}&X-Amz-Date={}",
+        "https://fake-spn-artifacts-production3.s3.amazonaws.com/{}/artifact_{}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=mock_signature_{}&X-Amz-Date={}",
         type_prefix, artifact_id, artifact_id, expires_timestamp
     )
 }
@@ -98,7 +98,7 @@ fn _verify_artifact_signature(signature: &[u8]) -> Result<Vec<u8>, eyre::Error> 
     // 1. Define the message format for artifact creation
     // 2. Implement the same signing/verification logic as in prover_network_service.rs
     // 3. Recover the signer address from the signature
-    println!("Verifying artifact signature: {:?}", hex::encode(signature));
+    println!("ARTIFACT: Verifying artifact signature: {:?}", hex::encode(signature));
     // For now, return a mock address
     let mock_address = vec![0x42; 20]; // Mock 20-byte address
     Ok(mock_address)
