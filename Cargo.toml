@@ -28,6 +28,10 @@ categories = { workspace = true }
 name = "spn_coordinator"
 path = "src/bin/main.rs"
 
+[[bin]]
+name = "http_test"
+path = "src/bin/http_test.rs"
+
 [dependencies]
 rpc-types = { path = "crates/types/rpc" }
 tokio = { workspace = true }
@@ -44,6 +48,9 @@ eyre = "0.6.12"
 alloy.workspace = true
 prost.workspace = true
 ethers = "2.0.14"
+axum = "0.8"
+tower = "0.5"
+bytes = "1.8"
 
 [workspace.dependencies]
 rpc = { path = "crates/types/rpc" }

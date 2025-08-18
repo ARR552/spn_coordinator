@@ -33,7 +33,7 @@ impl artifact_store_server::ArtifactStore for ArtifactStoreServiceImpl {
         // Generate unique artifact URI and presigned URL
         let artifact_id = generate_artifact_id();
         let artifact_uri = generate_artifact_uri(&artifact_type, &artifact_id);
-        let presigned_url = generate_presigned_url(&artifact_type, &artifact_id);
+        let presigned_url = generate_presigned_url(&artifact_id);
         
         println!("ARTIFACT: Generated artifact URI: {}", artifact_uri);
         println!("ARTIFACT: Generated presigned URL: {}", presigned_url);
@@ -74,21 +74,10 @@ fn generate_artifact_uri(artifact_type: &ArtifactType, artifact_id: &str) -> Str
 }
 
 /// Generate a presigned URL for artifact upload
-fn generate_presigned_url(artifact_type: &ArtifactType, artifact_id: &str) -> String {
-    let type_prefix = match artifact_type {
-        ArtifactType::Program => "programs",
-        ArtifactType::Stdin => "stdins",
-        ArtifactType::Proof => "proofs", 
-        ArtifactType::Transaction => "transactions",
-        ArtifactType::UnspecifiedArtifactType => "unspecified",
-    };
-    
-    // Generate a mock presigned URL (in real implementation this would be from AWS S3)
-    let expires_timestamp = chrono::Utc::now().timestamp() + 3600; // 1 hour from now
-    format!(
-        "https://fake-spn-artifacts-production3.s3.amazonaws.com/{}/artifact_{}?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=mock_signature_{}&X-Amz-Date={}",
-        type_prefix, artifact_id, artifact_id, expires_timestamp
-    )
+fn generate_presigned_url(artifact_id: &str) -> String {
+    // Generate a URL pointing to our HTTP server
+    // The client will use this URL to PUT the artifact data
+    format!("http://127.0.0.1:8082/artifacts/{}", artifact_id)
 }
 
 /// Verify signature for artifact creation (placeholder implementation)
