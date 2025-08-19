@@ -148,11 +148,129 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
 
     async fn get_filtered_proof_requests(&self, _request: Request<GetFilteredProofRequestsRequest>) -> Result<Response<GetFilteredProofRequestsResponse>, Status> {
         println!("PROVER_NETWORK: Received get_filtered_proof_requests request: {:?}", _request.get_ref());
-        // TODO implemente the filtering logic
+        let req_inner = _request.into_inner();
         let requests = self.requests.lock().await;
-        let all_requests: Vec<ProofRequest> = requests.values().map(|(req, _)| req.clone()).collect();
+        
+        let mut filtered_requests: Vec<ProofRequest> = requests
+            .values()
+            .map(|(req, _)| req.clone())
+            .filter(|req| {
+            // Filter by requester if provided
+            if let Some(ref filter_requester) = req_inner.requester {
+            if !filter_requester.is_empty() && req.requester != *filter_requester {
+                println!("PROVER_NETWORK: Filtering by requester. Not matching: {:?}", req.requester);
+                return false;
+            }
+            }
+            
+            // Filter by fulfillment status if provided
+            if req_inner.fulfillment_status.is_some() && req.fulfillment_status != req_inner.fulfillment_status.unwrap() {
+                println!("PROVER_NETWORK: Filtering by fulfillment_status. Not matching: {:?}", req.fulfillment_status);
+                return false;
+            }
+            
+            // Filter by execution status if provided
+            if req_inner.execution_status.is_some() && req.execution_status != req_inner.execution_status.unwrap() {
+                println!("PROVER_NETWORK: Filtering by execution_status. Not matching: {:?}", req.execution_status);
+                return false;
+            }
+            
+            // Filter by vk_hash if provided
+            if let Some(ref filter_vk_hash) = req_inner.vk_hash {
+                if !filter_vk_hash.is_empty() && req.vk_hash != *filter_vk_hash {
+                    println!("PROVER_NETWORK: Filtering by vk_hash. Not matching: {:?}", req.vk_hash);
+                    return false;
+                }
+            }
+            
+            // Filter by version if provided
+            if let Some(ref filter_version) = req_inner.version {
+                if !filter_version.is_empty() && req.version != *filter_version {
+                    println!("PROVER_NETWORK: Filtering by version. Not matching: {:?}", req.version);
+                    return false;
+                }
+            }
+            
+            // Filter by mode if provided
+            if req_inner.mode.is_some() && req.mode != req_inner.mode.unwrap() {
+                println!("PROVER_NETWORK: Filtering by mode. Not matching: {:?}", req.mode);
+                return false;
+            }
+
+            // Filter by minimum_deadline if provided
+            if req_inner.minimum_deadline.is_some() && req.deadline >= req_inner.minimum_deadline.unwrap() {
+                println!("PROVER_NETWORK: Filtering by minimum_deadline. Not matching: {:?}", req.deadline);
+                return false;
+            }
+
+            // Filter by fulfiller if provided
+            if let Some(ref filter_fulfiller) = req_inner.fulfiller {
+                if req.fulfiller.as_ref() != Some(filter_fulfiller) {
+                    println!("PROVER_NETWORK: Filtering by fulfiller. Not matching: {:?}", req.fulfiller);
+                    return false;
+                }
+            }
+
+            // Filter by from if provided
+            if req_inner.from.is_some() {
+                println!("PROVER_NETWORK: Filtering by from. Not implemented, ignoring... {:?}", req_inner.from);
+            }
+
+            // Filter by to if provided
+            if req_inner.to.is_some() {
+                println!("PROVER_NETWORK: Filtering by to. Not implemented, ignoring... {:?}", req_inner.to);
+            }
+
+            // Filter by not_bid_by if provided
+            if req_inner.not_bid_by.is_some() {
+                println!("PROVER_NETWORK: Filtering by not_bid_by. Not implemented, ignoring... {:?}", req_inner.not_bid_by);
+            }
+
+            // Filter by execute_fail_cause if provided
+            if req_inner.execute_fail_cause.is_some() && req.execute_fail_cause != req_inner.execute_fail_cause.unwrap() {
+                println!("PROVER_NETWORK: Filtering by execute_fail_cause. Not matching: {:?}", req.execute_fail_cause);
+                return false;
+            }
+
+            // Filter by settlement_status if provided
+            if req_inner.settlement_status.is_some() && req.settlement_status != req_inner.settlement_status.unwrap() {
+                println!("PROVER_NETWORK: Filtering by settlement_status. Not matching: {:?}", req.settlement_status);
+                return false;
+            }
+
+            // Filter by error if provided
+            if req_inner.error.is_some() && req.error != req_inner.error.unwrap() {
+                println!("PROVER_NETWORK: Filtering by error. Not matching: {:?}", req.error);
+                return false;
+            }
+
+            true
+            })
+            .collect();
+        
+        // Sort by created_at in ascending order (oldest first)
+        filtered_requests.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        
+        // Apply pagination
+        let page = req_inner.page.unwrap_or(0) as usize;
+        let limit = req_inner.limit.unwrap_or(50) as usize; // Default limit of 50
+        let offset = page * limit as usize; // Default page size of 50
+        
+        // Calculate total count before pagination
+        let total_count = filtered_requests.len();
+        
+        // Apply offset and limit
+        let paginated_requests: Vec<ProofRequest> = filtered_requests
+            .into_iter()
+            .skip(offset)
+            .take(limit)
+            .collect();
+        
+        println!("PROVER_NETWORK: Returning {} requests out of {} total", paginated_requests.len(), total_count);
+        
+        let filtered_requests = paginated_requests;
         Ok(Response::new(GetFilteredProofRequestsResponse {
-            requests: all_requests,
+            requests: filtered_requests,
         }))
     }
 

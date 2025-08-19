@@ -32,7 +32,7 @@ impl artifact_store_server::ArtifactStore for ArtifactStoreServiceImpl {
         
         // Generate unique artifact URI and presigned URL
         let artifact_id = generate_artifact_id();
-        let artifact_uri = generate_artifact_uri(&artifact_type, &artifact_id);
+        let artifact_uri = generate_artifact_uri(&artifact_id);
         let presigned_url = generate_presigned_url(&artifact_id);
         
         println!("ARTIFACT: Generated artifact URI: {}", artifact_uri);
@@ -60,17 +60,9 @@ fn generate_artifact_id() -> String {
     hex::encode(id_bytes)
 }
 
-/// Generate an artifact URI based on type and ID
-fn generate_artifact_uri(artifact_type: &ArtifactType, artifact_id: &str) -> String {
-    let type_prefix = match artifact_type {
-        ArtifactType::Program => "programs",
-        ArtifactType::Stdin => "stdins", 
-        ArtifactType::Proof => "proofs",
-        ArtifactType::Transaction => "transactions",
-        ArtifactType::UnspecifiedArtifactType => "unspecified",
-    };
-    
-    format!("s3://fake-spn-artifacts-production3/{}/artifact_{}", type_prefix, artifact_id)
+/// Generate an artifact URI based on the ID
+fn generate_artifact_uri(artifact_id: &str) -> String {    
+    format!("s3://spn-artifacts/{}", artifact_id)
 }
 
 /// Generate a presigned URL for artifact upload
