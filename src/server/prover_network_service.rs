@@ -13,7 +13,8 @@ use prost::Message;
 #[derive(Debug, Default)]
 pub struct ProverNetworkServiceImpl {
     /// TODO Store proof requests in memory (in real implementation this would be a database)  
-    requests: Mutex<HashMap<Vec<u8>, (ProofRequest, GetProofRequestStatusResponse)>>,
+    proof_requests: Mutex<HashMap<Vec<u8>, (ProofRequest, GetProofRequestStatusResponse)>>,
+    programs: Mutex<HashMap<Vec<u8>, Program>>,
 }
 
 #[tonic::async_trait]
@@ -39,7 +40,7 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         
         // Store the request for status tracking
         let status_response = GetProofRequestStatusResponse {
-            fulfillment_status: FulfillmentStatus::Requested as i32,
+            fulfillment_status: FulfillmentStatus::Assigned as i32,
             execution_status: ExecutionStatus::Unexecuted as i32,
             request_tx_hash: response.tx_hash.clone(),
             deadline: req.body.as_ref().map(|b| b.deadline).unwrap_or_default(),
@@ -48,8 +49,10 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
             public_values_hash: None,
             proof_public_uri: None,
         };
+        let msg_bytes: Vec<u8> = encode_body_for_signing(req.format, req.body.as_ref().ok_or_else(|| Status::invalid_argument("Request body is required"))?)
+            .map_err(|e| Status::internal(format!("Failed to encode body for signing: {}", e)))?;
         let requester = match req.body.as_ref() {
-            Some(body) => recover_signer_addr(req.format, body, &req.signature)
+            Some(_body) => recover_signer_addr(msg_bytes, &req.signature)
                 .map_err(|e| Status::invalid_argument(format!("Failed to recover signer address: {}", e)))?,
             None => return Err(Status::invalid_argument("Request body is required")),
         };
@@ -73,10 +76,11 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
                 gas_limit: req.body.as_ref().map(|b| b.gas_limit.clone()).unwrap_or_default(),
                 min_auction_period: req.body.as_ref().map(|b| b.min_auction_period.clone()).unwrap_or_default(),
                 whitelist: req.body.as_ref().map(|b| b.whitelist.clone()).unwrap_or_default(),
-                requester: requester,
+                requester: requester.clone(),
+                fulfiller: Some(requester.clone()),
                 ..Default::default()
             };
-        self.requests.lock().await.insert(request_id, (proof_request, status_response));
+        self.proof_requests.lock().await.insert(request_id, (proof_request, status_response));
         
         Ok(Response::new(response))
     }
@@ -88,7 +92,7 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         let req = request.into_inner();
         println!("PROVER_NETWORK: Server Received status request for ID: {:?}", hex::encode(&req.request_id));
         
-        let requests = self.requests.lock().await;
+        let requests = self.proof_requests.lock().await;
         if let Some((_, status)) = requests.get(&req.request_id) {
             Ok(Response::new(status.clone()))
         } else {
@@ -110,7 +114,7 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         // Extract body safely from Option
         let body = _request.into_inner().body.ok_or_else(|| Status::invalid_argument("Request body is required"))?;
         
-        let mut requests = self.requests.lock().await;
+        let mut requests = self.proof_requests.lock().await;
         if let Some((proof_request, status)) = requests.get_mut(&body.request_id) {
             // Update fulfillment status to Unfulfillable
             status.fulfillment_status = FulfillmentStatus::Unfulfillable as i32;
@@ -133,7 +137,7 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         let req_inner = _request.into_inner();
         println!("PROVER_NETWORK: Request ID received: {:?}", hex::encode(&req_inner.request_id));
         
-        let requests = self.requests.lock().await;
+        let requests = self.proof_requests.lock().await;
         if let Some((request, _)) = requests.get(&req_inner.request_id) {            
             let response = GetProofRequestDetailsResponse {
                 request: Some(request.clone()),
@@ -147,10 +151,12 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
     }
 
     async fn get_filtered_proof_requests(&self, _request: Request<GetFilteredProofRequestsRequest>) -> Result<Response<GetFilteredProofRequestsResponse>, Status> {
-        println!("PROVER_NETWORK: Received get_filtered_proof_requests request: {:?}", _request.get_ref());
+        // Clone the request data for logging before consuming the request
+        let request_data = _request.get_ref().clone();
         let req_inner = _request.into_inner();
-        let requests = self.requests.lock().await;
-        
+        let requests = self.proof_requests.lock().await;
+        println!("PROVER_NETWORK: fulfillment_status: {:?}, fulfiller: {:?}, Total requests in storage: {}", req_inner.fulfillment_status, req_inner.fulfiller.as_ref().map(hex::encode), requests.len());
+
         let mut filtered_requests: Vec<ProofRequest> = requests
             .values()
             .map(|(req, _)| req.clone())
@@ -158,27 +164,27 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
             // Filter by requester if provided
             if let Some(ref filter_requester) = req_inner.requester {
             if !filter_requester.is_empty() && req.requester != *filter_requester {
-                println!("PROVER_NETWORK: Filtering by requester. Not matching: {:?}", req.requester);
+                println!("PROVER_NETWORK: Received get_filtered_proof_requests request: {:?}. Filtering by requester. Not matching: {:?}", request_data, req.requester);
                 return false;
             }
             }
             
             // Filter by fulfillment status if provided
             if req_inner.fulfillment_status.is_some() && req.fulfillment_status != req_inner.fulfillment_status.unwrap() {
-                println!("PROVER_NETWORK: Filtering by fulfillment_status. Not matching: {:?}", req.fulfillment_status);
+                println!("PROVER_NETWORK: Received get_filtered_proof_requests request: {:?}. Filtering by fulfillment_status. Not matching: {:?}", request_data, req.fulfillment_status);
                 return false;
             }
             
             // Filter by execution status if provided
             if req_inner.execution_status.is_some() && req.execution_status != req_inner.execution_status.unwrap() {
-                println!("PROVER_NETWORK: Filtering by execution_status. Not matching: {:?}", req.execution_status);
+                println!("PROVER_NETWORK: Received get_filtered_proof_requests request: {:?}. Filtering by execution_status. Not matching: {:?}", request_data, req.execution_status);
                 return false;
             }
             
             // Filter by vk_hash if provided
             if let Some(ref filter_vk_hash) = req_inner.vk_hash {
                 if !filter_vk_hash.is_empty() && req.vk_hash != *filter_vk_hash {
-                    println!("PROVER_NETWORK: Filtering by vk_hash. Not matching: {:?}", req.vk_hash);
+                    println!("PROVER_NETWORK: Received get_filtered_proof_requests request: {:?}. Filtering by vk_hash. Not matching: {:?}", request_data, req.vk_hash);
                     return false;
                 }
             }
@@ -186,61 +192,61 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
             // Filter by version if provided
             if let Some(ref filter_version) = req_inner.version {
                 if !filter_version.is_empty() && req.version != *filter_version {
-                    println!("PROVER_NETWORK: Filtering by version. Not matching: {:?}", req.version);
+                    println!("PROVER_NETWORK: Received get_filtered_proof_requests request: {:?}. Filtering by version. Not matching: {:?}", request_data, req.version);
                     return false;
                 }
             }
             
             // Filter by mode if provided
             if req_inner.mode.is_some() && req.mode != req_inner.mode.unwrap() {
-                println!("PROVER_NETWORK: Filtering by mode. Not matching: {:?}", req.mode);
+                println!("PROVER_NETWORK: Received get_filtered_proof_requests request: {:?}. Filtering by mode. Not matching: {:?}", request_data, req.mode);
                 return false;
             }
 
             // Filter by minimum_deadline if provided
-            if req_inner.minimum_deadline.is_some() && req.deadline >= req_inner.minimum_deadline.unwrap() {
-                println!("PROVER_NETWORK: Filtering by minimum_deadline. Not matching: {:?}", req.deadline);
+            if req_inner.minimum_deadline.is_some() && req.deadline <= req_inner.minimum_deadline.unwrap() {
+                println!("PROVER_NETWORK: Received get_filtered_proof_requests request: {:?}. Filtering by minimum_deadline. Not matching: received in the request {:?} and stored in the proof_request {:?}", request_data, req_inner.minimum_deadline, req.deadline);
                 return false;
             }
 
             // Filter by fulfiller if provided
             if let Some(ref filter_fulfiller) = req_inner.fulfiller {
                 if req.fulfiller.as_ref() != Some(filter_fulfiller) {
-                    println!("PROVER_NETWORK: Filtering by fulfiller. Not matching: {:?}", req.fulfiller);
+                    println!("PROVER_NETWORK: Received get_filtered_proof_requests request: {:?}. Filtering by fulfiller. Not matching: {:?}", request_data, req.fulfiller);
                     return false;
                 }
             }
 
             // Filter by from if provided
             if req_inner.from.is_some() {
-                println!("PROVER_NETWORK: Filtering by from. Not implemented, ignoring... {:?}", req_inner.from);
+                println!("PROVER_NETWORK: Received get_filtered_proof_requests request: {:?}. Filtering by from. Not implemented, ignoring... {:?}", request_data, req_inner.from);
             }
 
             // Filter by to if provided
             if req_inner.to.is_some() {
-                println!("PROVER_NETWORK: Filtering by to. Not implemented, ignoring... {:?}", req_inner.to);
+                println!("PROVER_NETWORK: Received get_filtered_proof_requests request: {:?}. Filtering by to. Not implemented, ignoring... {:?}", request_data, req_inner.to);
             }
 
             // Filter by not_bid_by if provided
             if req_inner.not_bid_by.is_some() {
-                println!("PROVER_NETWORK: Filtering by not_bid_by. Not implemented, ignoring... {:?}", req_inner.not_bid_by);
+                println!("PROVER_NETWORK: Received get_filtered_proof_requests request: {:?}. Filtering by not_bid_by. Not implemented, ignoring... {:?}", request_data, req_inner.not_bid_by);
             }
 
             // Filter by execute_fail_cause if provided
             if req_inner.execute_fail_cause.is_some() && req.execute_fail_cause != req_inner.execute_fail_cause.unwrap() {
-                println!("PROVER_NETWORK: Filtering by execute_fail_cause. Not matching: {:?}", req.execute_fail_cause);
+                println!("PROVER_NETWORK: Received get_filtered_proof_requests request: {:?}. Filtering by execute_fail_cause. Not matching: {:?}", request_data, req.execute_fail_cause);
                 return false;
             }
 
             // Filter by settlement_status if provided
             if req_inner.settlement_status.is_some() && req.settlement_status != req_inner.settlement_status.unwrap() {
-                println!("PROVER_NETWORK: Filtering by settlement_status. Not matching: {:?}", req.settlement_status);
+                println!("PROVER_NETWORK: Received get_filtered_proof_requests request: {:?}. Filtering by settlement_status. Not matching: {:?}", request_data, req.settlement_status);
                 return false;
             }
 
             // Filter by error if provided
             if req_inner.error.is_some() && req.error != req_inner.error.unwrap() {
-                println!("PROVER_NETWORK: Filtering by error. Not matching: {:?}", req.error);
+                println!("PROVER_NETWORK: Received get_filtered_proof_requests request: {:?}. Filtering by error. Not matching: {:?}", request_data, req.error);
                 return false;
             }
 
@@ -278,7 +284,7 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
 
     async fn subscribe_proof_requests(&self, _request: Request<GetFilteredProofRequestsRequest>) -> Result<Response<Self::SubscribeProofRequestsStream>, Status> {
         // TODO implemente the filtering logic
-        let requests = self.requests.lock().await;
+        let requests = self.proof_requests.lock().await;
         let all_requests: Vec<ProofRequest> = requests.values().map(|(req, _)| req.clone()).collect();
         drop(requests);
         
@@ -336,36 +342,50 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
 
     async fn get_owner(&self, _request: Request<GetOwnerRequest>) -> Result<Response<GetOwnerResponse>, Status> {
         // println!("PROVER_NETWORK: Received get_owner request: {:?}", _request.get_ref());
-        let acct = _request.into_inner().address.to_ascii_lowercase();
+        let acct = _request.into_inner().address;
         Ok(Response::new(GetOwnerResponse { owner: acct.clone() }))
     }
 
     async fn get_program(&self, _request: Request<GetProgramRequest>) -> Result<Response<GetProgramResponse>, Status> {
         let request_inner = _request.into_inner();
         println!("PROVER_NETWORK: Received get_program request: {:?}", hex::encode(&request_inner.vk_hash));
-        // Check if the requested vk_hash matches our hardcoded program
-        let requested_vk_hash = hex::encode(&request_inner.vk_hash);
-        if requested_vk_hash == "005d763c1b4e00563d156f9ba8cc60561014267a5d3f5f16e2b8a47fa9dfe173" {
-            let program = rpc_types::Program {
-                vk_hash: hex::decode("005d763c1b4e00563d156f9ba8cc60561014267a5d3f5f16e2b8a47fa9dfe173").unwrap_or_default(),
-                vk: hex::decode("18c19a61c29c213edfea9e0e5f7b35610f968f43282c5002be4fd123980b3a4644a92d00fecded6ac7efd272fca32d3f487d864ef12bf638be069326153b79650edd32370c739032ac70962f7b08ef1376627c701343d63742584c2c0200000000000000070000000000000050726f6772616d1400000000000000010000000e0000000000000000001000000000000400000000000000427974651000000000000000010000000b0000000000000000000100000000000200000000000000070000000000000050726f6772616d00000000000000000400000000000000427974650100000000000000").unwrap_or_default(),
-                program_uri: "s3://spn-artifacts-production3/programs/artifact_01jxd32w11f7hvrzn3rfdfqj3e".to_string(),
-                name: None,
-                owner: hex::decode("660a426ff3846756aec0bda55324271bb4a21060").unwrap_or_default(),
-                created_at: 1749564880,
-            };
-            
+        // Check if the requested vk_hash exists
+        let programs: tokio::sync::MutexGuard<'_, HashMap<Vec<u8>, Program>> = self.programs.lock().await;
+
+        if let Some(program) = programs.get(&request_inner.vk_hash) {            
             let response = GetProgramResponse {
-                program: Some(program),
+                program: Some(program.clone()),
             };
-            
-            return Ok(Response::new(response));
+            Ok(Response::new(response))
+        } else {
+            Err(Status::not_found("Proof request not found"))
         }
-        Err(Status::unimplemented("get_program not implemented"))
     }
 
     async fn create_program(&self, _request: Request<CreateProgramRequest>) -> Result<Response<CreateProgramResponse>, Status> {
-        Err(Status::unimplemented("create_program not implemented"))
+        let request_inner = _request.into_inner();
+        let body: CreateProgramRequestBody = request_inner.body.ok_or_else(|| Status::invalid_argument("Request body is required"))?;
+        let msg_bytes: Vec<u8> = encode_body_for_signing(request_inner.format, &body)
+            .map_err(|e| Status::internal(format!("Failed to encode body for signing: {}", e)))?;
+        let requester = recover_signer_addr(msg_bytes, &request_inner.signature)
+            .map_err(|e| Status::invalid_argument(format!("Failed to recover signer address: {}", e)))?;
+        let vk_hash_key = body.vk_hash.clone();
+        let program = rpc_types::Program {
+            vk_hash: body.vk_hash,
+            vk: body.vk,
+            program_uri: body.program_uri,
+            name: None,
+            owner: requester.clone(),
+            created_at: chrono::Utc::now().timestamp() as u64,
+        };
+        let mut programs: tokio::sync::MutexGuard<'_, HashMap<Vec<u8>, Program>> = self.programs.lock().await;
+        programs.insert(vk_hash_key, program.clone());
+
+        let response = CreateProgramResponse {
+            tx_hash: random::<[u8; 32]>().to_vec(),
+            body: Some(CreateProgramResponseBody {})
+        };
+        Ok(Response::new(response))
     }
 
     async fn set_program_name(&self, _request: Request<SetProgramNameRequest>) -> Result<Response<SetProgramNameResponse>, Status> {
@@ -725,7 +745,7 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
     }
 }
 
-fn encode_body_for_signing(format: i32, body: &RequestProofRequestBody) -> eyre::Result<Vec<u8>> {
+fn encode_body_for_signing<T: Message>(format: i32, body: &T) -> eyre::Result<Vec<u8>> {
     let fmt = MessageFormat::try_from(format).unwrap_or(MessageFormat::Binary);
     match fmt {
         MessageFormat::Binary => {
@@ -773,14 +793,11 @@ fn encode_body_for_signing(format: i32, body: &RequestProofRequestBody) -> eyre:
     }
 }
 
-pub fn recover_signer_addr(format: i32, body: &RequestProofRequestBody, sig_bytes: &[u8]) -> eyre::Result<Vec<u8>> {
-    // 3a. Reproduce the exact bytes the client signed
-    let msg_bytes = encode_body_for_signing(format, body)?;
-
-    // 3b. Apply EIP-191 prefix (Ethereum personal message format)
+pub fn recover_signer_addr(msg_bytes: Vec<u8>, sig_bytes: &[u8]) -> eyre::Result<Vec<u8>> {
+    // Apply EIP-191 prefix (Ethereum personal message format)
     let msg_hash = hash_message(&msg_bytes); // This applies EIP-191 prefix and hashes
 
-    // 3c. Parse the signature and recover the address
+    // Parse the signature and recover the address
     let sig = Signature::try_from(sig_bytes)?;
     let address = sig.recover(msg_hash)?;
     let address_bytes = address.as_bytes().to_vec();

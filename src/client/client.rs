@@ -63,6 +63,14 @@ impl ProverNetworkClient {
         println!("Client requesting real gRPC status from server for: {:?}", hex::encode(&request.request_id));
         self.client.get_proof_request_status(Request::new(request)).await
     }
+
+    pub async fn create_program(
+        &mut self,
+        request: CreateProgramRequest,
+    ) -> Result<Response<CreateProgramResponse>, Status> {
+        println!("Client sending real gRPC request to server");
+        self.client.create_program(Request::new(request)).await
+    }
 }
 
 async fn sign_body(wallet: &LocalWallet, encoded_message: Vec<u8>) -> anyhow::Result<Vec<u8>> {
@@ -81,41 +89,62 @@ async fn sign_body(wallet: &LocalWallet, encoded_message: Vec<u8>) -> anyhow::Re
     Ok(sig.to_vec())
 }
 
-/// Create a sample RequestProofRequest with correct field names
-pub async fn create_sample_request() -> anyhow::Result<RequestProofRequest> {
-    let wallet = LocalWallet::from_str("0xe5d76acbffb5be6d87002e2cd5622b6dfe715f73ac60c613f14ba2d3f735c20b")?;
-    let b = RequestProofRequestBody {
-        nonce: 1,
-        vk_hash: hex::decode("00199e4c35364a8ed49c9fac0f0940aa555ce166aafc1ccb24f57d245f9c962c").unwrap(),
-        version: "sp1-v5.0.0".to_string(),
-        mode: ProofMode::Plonk as i32,
-        strategy: FulfillmentStrategy::Reserved as i32,
-        stdin_uri: "s3://spn-artifacts-production3/stdins/artifact_01k1zkd4ntf21bcqgp5539zb9a".to_string(),
-        deadline: 1754481839, // Mock timestamp
-        cycle_limit: 55869569,
-        gas_limit: 1000000000,
-        min_auction_period: 60,
-        whitelist: vec![],
-        domain: b"mock_domain".to_vec(),
-        auctioneer: hex::decode("d8d77442e6dc01d11fd7dcfa230198253f5f76ee").unwrap(),
-        executor: b"mock_executor".to_vec(),
-        verifier: b"mock_verifier".to_vec(),
-        public_values_hash: Some(hex::decode("0068e255db4186f38c1da5d71ad3edafc0b4373d8131b47626f6e2d5a8e8fe98").unwrap()),
-        base_fee: "1000000000000000000".to_string(), // 1 ETH in wei
-        max_price_per_pgu: "1000000000".to_string(), // 1 Gwei
-        variant: TransactionVariant::RequestVariant as i32,
-        treasury: b"mock_treasury".to_vec(),
-    };
-    let mut buf = Vec::new();
-    b.encode(&mut buf).expect("prost encode failed");
-    let signature = sign_body(&wallet, buf).await?;
+// /// Create a sample RequestProofRequest with correct field names
+// pub async fn create_sample_request() -> anyhow::Result<RequestProofRequest> {
+//     let wallet = LocalWallet::from_str("0xe5d76acbffb5be6d87002e2cd5622b6dfe715f73ac60c613f14ba2d3f735c20b")?;
+//     let b = RequestProofRequestBody {
+//         nonce: 1,
+//         vk_hash: hex::decode("00199e4c35364a8ed49c9fac0f0940aa555ce166aafc1ccb24f57d245f9c962c").unwrap(),
+//         version: "sp1-v5.0.0".to_string(),
+//         mode: ProofMode::Plonk as i32,
+//         strategy: FulfillmentStrategy::Reserved as i32,
+//         stdin_uri: "s3://spn-artifacts-production3/stdins/artifact_01k1zkd4ntf21bcqgp5539zb9a".to_string(),
+//         deadline: 1754481839, // Mock timestamp
+//         cycle_limit: 55869569,
+//         gas_limit: 1000000000,
+//         min_auction_period: 60,
+//         whitelist: vec![],
+//         domain: b"mock_domain".to_vec(),
+//         auctioneer: hex::decode("d8d77442e6dc01d11fd7dcfa230198253f5f76ee").unwrap(),
+//         executor: b"mock_executor".to_vec(),
+//         verifier: b"mock_verifier".to_vec(),
+//         public_values_hash: Some(hex::decode("0068e255db4186f38c1da5d71ad3edafc0b4373d8131b47626f6e2d5a8e8fe98").unwrap()),
+//         base_fee: "1000000000000000000".to_string(), // 1 ETH in wei
+//         max_price_per_pgu: "1000000000".to_string(), // 1 Gwei
+//         variant: TransactionVariant::RequestVariant as i32,
+//         treasury: b"mock_treasury".to_vec(),
+//     };
+//     let mut buf = Vec::new();
+//     b.encode(&mut buf).expect("prost encode failed");
+//     let signature = sign_body(&wallet, buf).await?;
 
-    // let sig: Vec<u8> = b.sign(&signer).into();
-    Ok(RequestProofRequest {
+//     // let sig: Vec<u8> = b.sign(&signer).into();
+//     Ok(RequestProofRequest {
+//         format: MessageFormat::Json as i32,
+//         signature: signature,
+//         body: Some(b),
+//     })
+// }
+
+pub async fn create_program_request() -> anyhow::Result<CreateProgramRequest> {
+    let program = rpc_types::CreateProgramRequestBody {
+        vk_hash: hex::decode("005d763c1b4e00563d156f9ba8cc60561014267a5d3f5f16e2b8a47fa9dfe173").unwrap_or_default(),
+        vk: hex::decode("18c19a61c29c213edfea9e0e5f7b35610f968f43282c5002be4fd123980b3a4644a92d00fecded6ac7efd272fca32d3f487d864ef12bf638be069326153b79650edd32370c739032ac70962f7b08ef1376627c701343d63742584c2c0200000000000000070000000000000050726f6772616d1400000000000000010000000e0000000000000000001000000000000400000000000000427974651000000000000000010000000b0000000000000000000100000000000200000000000000070000000000000050726f6772616d00000000000000000400000000000000427974650100000000000000").unwrap_or_default(),
+        program_uri: "s3://spn-artifacts-production3/programs/artifact_01jxd32w11f7hvrzn3rfdfqj3e".to_string(),
+        nonce: 0,
+    };
+
+    let mut buf = Vec::new();
+    let wallet = LocalWallet::from_str("0xe5d76acbffb5be6d87002e2cd5622b6dfe715f73ac60c613f14ba2d3f735c20b")?;
+    program.encode(&mut buf).expect("prost encode failed");
+    let signature = sign_body(&wallet, buf).await?;
+    let request = rpc_types::CreateProgramRequest {
         format: MessageFormat::Json as i32,
         signature: signature,
-        body: Some(b),
-    })
+        body: Some(program),
+    };
+    
+    return Ok(request);
 }
 
 /// Client function that connects to the server
@@ -133,33 +162,34 @@ pub async fn run_client() -> Result<()> {
     
     println!("\n--- Client Request ---");
     
-    // Create a different sample request for each iteration
-    let request = create_sample_request().await?;
+    // Create a request
+    let request = create_program_request().await?;
     
     println!("Client sending proof request ");
-    let response = client.request_proof(request).await?;
+    // let response = client.request_proof(request).await?;
+    let response = client.create_program(request).await?;
     let response_inner = response.into_inner();
     
-    println!("Client received response: TX Hash = {}", hex::encode(&response_inner.tx_hash));
+    println!("Client create program response: TX Hash = {}", hex::encode(&response_inner.tx_hash));
     
-    if let Some(body) = &response_inner.body {
-        println!("Request ID: {}", hex::encode(&body.request_id));
+    // if let Some(body) = &response_inner.body {
+    //     println!("Request ID: {}", hex::encode(&body.request_id));
         
-        // Check status
-        let status_request = GetProofRequestStatusRequest {
-            request_id: body.request_id.clone(),
-        };
+    //     // Check status
+    //     let status_request = GetProofRequestStatusRequest {
+    //         request_id: body.request_id.clone(),
+    //     };
         
-        let status_response = client.get_proof_request_status(status_request).await?;
-        let status_inner = status_response.into_inner();
+    //     let status_response = client.get_proof_request_status(status_request).await?;
+    //     let status_inner = status_response.into_inner();
         
-        println!("Status check: {:?}", status_inner);
-        println!("  Fulfillment: {:?}", FulfillmentStatus::try_from(status_inner.fulfillment_status).unwrap_or(FulfillmentStatus::UnspecifiedFulfillmentStatus));
-        println!("  Execution: {:?}", ExecutionStatus::try_from(status_inner.execution_status).unwrap_or(ExecutionStatus::UnspecifiedExecutionStatus));
-        if let Some(proof_uri) = &status_inner.proof_uri {
-            println!("  Proof URI: {}", proof_uri);
-        }
-    }
+    //     println!("Status check: {:?}", status_inner);
+    //     println!("  Fulfillment: {:?}", FulfillmentStatus::try_from(status_inner.fulfillment_status).unwrap_or(FulfillmentStatus::UnspecifiedFulfillmentStatus));
+    //     println!("  Execution: {:?}", ExecutionStatus::try_from(status_inner.execution_status).unwrap_or(ExecutionStatus::UnspecifiedExecutionStatus));
+    //     if let Some(proof_uri) = &status_inner.proof_uri {
+    //         println!("  Proof URI: {}", proof_uri);
+    //     }
+    // }
     
     // Wait between requests
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
