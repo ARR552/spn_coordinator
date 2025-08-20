@@ -52,6 +52,7 @@ ethers = "2.0.14"
 axum = "0.8"
 tower = "0.5"
 bytes = "1.8"
+reqwest = { workspace = true }
 
 [workspace.dependencies]
 rpc = { path = "crates/types/rpc" }

@@ -7,9 +7,69 @@ use ethers::{utils::keccak256};
 use ethers::signers::{LocalWallet};
 use std::str::FromStr;
 
+/// The zkvm ELF binaries.
+pub const AGGREGATION_ELF: &[u8] = include_bytes!("./elf/aggregation-elf");
+pub const RANGE_ELF_BUMP: &[u8] = include_bytes!("./elf/range-elf-bump");
+pub const RANGE_ELF_EMBEDDED: &[u8] = include_bytes!("./elf/range-elf-embedded");
+pub const CELESTIA_RANGE_ELF_EMBEDDED: &[u8] =
+    include_bytes!("./elf/celestia-range-elf-embedded");
+// TODO: Update to EigenDA Range ELF Embedded
+pub const EIGENDA_RANGE_ELF_EMBEDDED: &[u8] = include_bytes!("./elf/range-elf-embedded");
+
+
 /// Real gRPC client that makes actual gRPC calls
 pub struct ProverNetworkClient {
     client: prover_network_client::ProverNetworkClient<Channel>,
+}
+
+/// Artifact service client for creating and managing artifacts
+pub struct ArtifactServiceClient {
+    client: artifact_store_client::ArtifactStoreClient<Channel>,
+}
+
+impl ArtifactServiceClient {
+    pub async fn new(endpoint: String) -> Result<Self, Box<dyn std::error::Error>> {
+        // Load the CA certificate to verify the server certificate
+        println!("Setting up TLS client configuration for artifact service...");
+        
+        let ca_pem = std::fs::read("testing-cert/ca.pem")
+            .map_err(|e| format!("Failed to read CA certificate: {}", e))?;
+        
+        println!("Loaded CA certificate for artifact service, size: {} bytes", ca_pem.len());
+        
+        // Configure TLS with the proper CA certificate
+        let tls_config = ClientTlsConfig::new()
+            .ca_certificate(tonic::transport::Certificate::from_pem(&ca_pem))
+            .domain_name("localhost");
+        let tls_activated = false; // Set to true if TLS is enabled
+        
+        let mut endpoint = Endpoint::new(endpoint)
+            .map_err(|e| format!("Invalid endpoint: {}", e))?
+            .timeout(Duration::from_secs(15))
+            .connect_timeout(Duration::from_secs(15))
+            .keep_alive_while_idle(true)
+            .http2_keep_alive_interval(Duration::from_secs(15))
+            .keep_alive_timeout(Duration::from_secs(15))
+            .tcp_keepalive(Some(Duration::from_secs(30)));
+        if tls_activated {
+            endpoint = endpoint.tls_config(tls_config).map_err(|e| format!("TLS config error: {}", e))?
+        }
+
+        let channel: Channel = endpoint.connect()
+            .await
+            .map_err(|e| format!("Connection failed: {}", e))?;
+            
+        let client = artifact_store_client::ArtifactStoreClient::new(channel);
+        Ok(Self { client })
+    }
+    
+    pub async fn create_artifact(
+        &mut self,
+        request: CreateArtifactRequest,
+    ) -> Result<Response<CreateArtifactResponse>, Status> {
+        println!("Client sending artifact creation request to server");
+        self.client.create_artifact(Request::new(request)).await
+    }
 }
 
 impl ProverNetworkClient {
@@ -146,6 +206,14 @@ pub async fn create_program_request() -> anyhow::Result<CreateProgramRequest> {
     
     return Ok(request);
 }
+pub async fn create_artifact_request(artifact_type: ArtifactType) -> anyhow::Result<CreateArtifactRequest> {
+    let request = CreateArtifactRequest {
+        artifact_type: artifact_type as i32,
+        ..Default::default()
+    };
+    
+    Ok(request)
+}
 
 /// Client function that connects to the server
 pub async fn run_client() -> Result<()> {
@@ -160,8 +228,51 @@ pub async fn run_client() -> Result<()> {
             anyhow::anyhow!("Failed to create prover_network_client: {}", e)
         })?;
     
-    println!("\n--- Client Request ---");
+    // Create artifact service client
+    let mut artifact_client = ArtifactServiceClient::new("http://127.0.0.1:50051".to_string()).await
+        .map_err(|e| {
+            eprintln!("Detailed artifact_client creation error: {:?}", e);
+            anyhow::anyhow!("Failed to create artifact_client: {}", e)
+        })?;
     
+    let artifact_type = ArtifactType::Program;
+    let artifact_request = create_artifact_request(artifact_type).await?;
+    
+    let response_inner = match artifact_client.create_artifact(artifact_request).await {
+        Ok(response) => {
+            let response_inner = response.into_inner();
+            println!("✓ artifact created successfully!");
+            println!("  Artifact URI: {}", response_inner.artifact_uri);
+            println!("  Presigned URL: {}", response_inner.artifact_presigned_url);
+            response_inner
+        },
+        Err(e) => {
+            eprintln!("✗ Failed to create artifact: {}", e);
+            return Err(anyhow::anyhow!("Failed to create artifact: {}", e));
+        }
+    };
+    
+    // Upload the artifact using the presigned URL
+    let artifact_bytes = AGGREGATION_ELF;
+    println!("Uploading artifact ({} bytes) to presigned URL...", artifact_bytes.len());
+
+    let put_url = response_inner.artifact_presigned_url.clone().replace("spn-coordinator-001", "localhost");
+    let client = reqwest::Client::new();
+    let upload_response = client
+        .put(put_url)
+        .header("Content-Type", "application/binary")
+        .body(artifact_bytes.to_vec())
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to upload artifact: {}", e))?;
+
+    if upload_response.status().is_success() {
+        println!("✓ Artifact uploaded successfully!");
+    } else {
+        eprintln!("✗ Failed to upload artifact. Status: {}", upload_response.status());
+        eprintln!("Response: {:?}", upload_response.text().await);
+    }
+
     // Create a request
     let request = create_program_request().await?;
     
