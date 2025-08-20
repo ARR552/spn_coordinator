@@ -29,6 +29,7 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         
         // Generate a unique request ID
         let request_id = random::<[u8; 32]>().to_vec();
+        println!("PROVER_NETWORK: Server Request_id: {:?}", hex::encode(&request_id));
         // Create a response
         let tx_hash_bytes = random::<[u8; 32]>().to_vec();
         let response = RequestProofResponse {
@@ -58,13 +59,16 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         };
         println!("PROVER_NETWORK: Server Recovered requester address: {:?}", hex::encode(&requester));
         let now = chrono::Utc::now().timestamp() as u64;
+        let vk_hash = req.body.as_ref().map(|b| b.vk_hash.clone()).unwrap_or_default();
+        let programs = self.programs.lock().await;
+        let program = programs.get(&vk_hash);
+        println!("vk_hash {:?}, program: {:?}", vk_hash, program);
         let proof_request = ProofRequest {
                 request_id: request_id.clone(),
-                vk_hash: req.body.as_ref().map(|b| b.vk_hash.clone()).unwrap_or_default(),
+                vk_hash: vk_hash,
                 version: req.body.as_ref().map(|b| b.version.clone()).unwrap_or_default(),
                 mode:    req.body.as_ref().map(|b| b.mode.clone()).unwrap_or_default(),
                 strategy: req.body.as_ref().map(|b| b.strategy.clone()).unwrap_or_default(),
-                stdin_uri: req.body.as_ref().map(|b| b.stdin_uri.clone()).unwrap_or_default(),
                 deadline: req.body.as_ref().map(|b| b.deadline.clone()).unwrap_or_default(),
                 cycle_limit: req.body.as_ref().map(|b| b.cycle_limit.clone()).unwrap_or_default(),
                 fulfillment_status: status_response.fulfillment_status.clone(),
@@ -78,6 +82,10 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
                 whitelist: req.body.as_ref().map(|b| b.whitelist.clone()).unwrap_or_default(),
                 requester: requester.clone(),
                 fulfiller: Some(requester.clone()),
+                program_uri: program.map(|p| p.program_uri.clone()).unwrap_or_default(),
+                program_public_uri: program.map(|p| p.program_uri.clone()).unwrap_or_default(),
+                stdin_uri: req.body.as_ref().map(|b| b.stdin_uri.clone()).unwrap_or_default(),
+                stdin_public_uri: req.body.as_ref().map(|b| b.stdin_uri.clone()).unwrap_or_default(),
                 ..Default::default()
             };
         self.proof_requests.lock().await.insert(request_id, (proof_request, status_response));
