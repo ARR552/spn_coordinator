@@ -31,8 +31,8 @@ impl HttpServer {
         
         // Build the application with routes
         let app = Router::new()
-            .route("/artifacts/{artifact_id}", put(upload_artifact))
-            .route("/artifacts/{artifact_id}", get(download_artifact))
+            .route("/artifacts/{artifact_type}/{artifact_id}", put(upload_artifact))
+            .route("/artifacts/{artifact_type}/{artifact_id}", get(download_artifact))
             .route("/health", get(health_check))
             .with_state(storage);
 
@@ -53,15 +53,16 @@ impl HttpServer {
 
 /// Handler for PUT /artifacts/:artifact_id
 async fn upload_artifact(
-    Path(artifact_id): Path<String>,
+    Path((artifact_type, artifact_id)): Path<(String, String)>,
     State(storage): State<Arc<Mutex<HashMap<String, Bytes>>>>,
     body: Bytes,
 ) -> Result<&'static str, StatusCode> {
-    println!("HTTP: Received PUT request for artifact: {}", artifact_id);
+    println!("HTTP: Received PUT request for artifact: {}/{}", artifact_type, artifact_id);
     println!("HTTP: Body size: {} bytes", body.len());
     
     // Store the bytes in memory
-    storage.lock().await.insert(artifact_id.clone(), body);
+    let key: String = format!("{}/{}", artifact_type, artifact_id);
+    storage.lock().await.insert(key, body);
     
     println!("HTTP: Successfully stored artifact: {}", artifact_id);
     
@@ -70,13 +71,14 @@ async fn upload_artifact(
 
 /// Handler for GET /artifacts/:artifact_id
 async fn download_artifact(
-    Path(artifact_id): Path<String>,
+    Path((artifact_type, artifact_id)): Path<(String, String)>,
     State(storage): State<Arc<Mutex<HashMap<String, Bytes>>>>,
 ) -> Result<(StatusCode, Vec<u8>), StatusCode> {
-    println!("HTTP: Received GET request for artifact: {}", artifact_id);
+    println!("HTTP: Received GET request for artifact: {}/{}", artifact_type, artifact_id);
     
     let storage_guard = storage.lock().await;
-    if let Some(data) = storage_guard.get(&artifact_id) {
+    let key: String = format!("{}/{}", artifact_type, artifact_id);
+    if let Some(data) = storage_guard.get(&key) {
         println!("HTTP: Found artifact: {} ({} bytes)", artifact_id, data.len());
         Ok((StatusCode::OK, data.to_vec()))
     } else {

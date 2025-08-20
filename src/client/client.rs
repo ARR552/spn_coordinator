@@ -154,10 +154,10 @@ pub async fn run_client() -> Result<()> {
     // Wait a bit for server to start
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     
-    let mut client = ProverNetworkClient::new("http://127.0.0.1:50051".to_string()).await
+    let mut prover_network_client = ProverNetworkClient::new("http://127.0.0.1:50051".to_string()).await
         .map_err(|e| {
-            eprintln!("Detailed client creation error: {:?}", e);
-            anyhow::anyhow!("Failed to create client: {}", e)
+            eprintln!("Detailed prover_network_client creation error: {:?}", e);
+            anyhow::anyhow!("Failed to create prover_network_client: {}", e)
         })?;
     
     println!("\n--- Client Request ---");
@@ -167,7 +167,7 @@ pub async fn run_client() -> Result<()> {
     
     println!("Client sending proof request ");
     // let response = client.request_proof(request).await?;
-    let response = client.create_program(request).await?;
+    let response = prover_network_client.create_program(request).await?;
     let response_inner = response.into_inner();
     
     println!("Client create program response: TX Hash = {}", hex::encode(&response_inner.tx_hash));
