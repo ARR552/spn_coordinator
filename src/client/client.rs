@@ -1,13 +1,18 @@
 use anyhow::Result;
 use rpc_types::*;
-use tonic::{Request, Response, Status, transport::{Channel, Endpoint, ClientTlsConfig}};
+use tonic::{transport::{Channel, ClientTlsConfig, Endpoint}, IntoRequest, Request, Response, Status};
 use prost::Message;
 use std::time::Duration;
 use ethers::{utils::keccak256};
 use ethers::signers::{LocalWallet};
 use std::str::FromStr;
+use std::{sync::Arc};
+use sp1_sdk::{
+    network::FulfillmentStrategy, HashableKey, NetworkProver, Prover, ProverClient, SP1ProofMode, SP1ProofWithPublicValues, SP1ProvingKey, SP1VerifyingKey, SP1_CIRCUIT_VERSION, SP1Stdin,
+};
 
 /// The zkvm ELF binaries.
+pub const FIBONACCI_ELF: &[u8] = include_bytes!("./elf/fibonacci-program");
 pub const AGGREGATION_ELF: &[u8] = include_bytes!("./elf/aggregation-elf");
 pub const RANGE_ELF_BUMP: &[u8] = include_bytes!("./elf/range-elf-bump");
 pub const RANGE_ELF_EMBEDDED: &[u8] = include_bytes!("./elf/range-elf-embedded");
@@ -150,13 +155,20 @@ async fn sign_body(wallet: &LocalWallet, encoded_message: Vec<u8>) -> anyhow::Re
 }
 
 pub async fn create_program_request(program_uri: String) -> anyhow::Result<CreateProgramRequest> {
+    let private_key = "0x58301ea64f48a91e21f900bacf599eb61ec9331455db34f9b4279d5c652f368f";
+    let network_prover =
+            Arc::new(ProverClient::builder().network().private_key(&private_key).build());
+    let (proving_key, verification_key) = network_prover.setup(FIBONACCI_ELF);
     let program = rpc_types::CreateProgramRequestBody {
-        vk_hash: hex::decode("005d763c1b4e00563d156f9ba8cc60561014267a5d3f5f16e2b8a47fa9dfe173").unwrap_or_default(),
-        vk: hex::decode("18c19a61c29c213edfea9e0e5f7b35610f968f43282c5002be4fd123980b3a4644a92d00fecded6ac7efd272fca32d3f487d864ef12bf638be069326153b79650edd32370c739032ac70962f7b08ef1376627c701343d63742584c2c0200000000000000070000000000000050726f6772616d1400000000000000010000000e0000000000000000001000000000000400000000000000427974651000000000000000010000000b0000000000000000000100000000000200000000000000070000000000000050726f6772616d00000000000000000400000000000000427974650100000000000000").unwrap_or_default(),
+        vk_hash: verification_key.vk.hash_bytes().to_vec(),//hex::decode("005d763c1b4e00563d156f9ba8cc60561014267a5d3f5f16e2b8a47fa9dfe173").unwrap_or_default(),
+        vk: bincode::serialize(&verification_key)?,//hex::decode("18c19a61c29c213edfea9e0e5f7b35610f968f43282c5002be4fd123980b3a4644a92d00fecded6ac7efd272fca32d3f487d864ef12bf638be069326153b79650edd32370c739032ac70962f7b08ef1376627c701343d63742584c2c0200000000000000070000000000000050726f6772616d1400000000000000010000000e0000000000000000001000000000000400000000000000427974651000000000000000010000000b0000000000000000000100000000000200000000000000070000000000000050726f6772616d00000000000000000400000000000000427974650100000000000000").unwrap_or_default(),
         program_uri: program_uri,
         nonce: 0,
     };
-
+    let vk1: SP1VerifyingKey = bincode::deserialize(&program.vk)?;
+    let computed_vkHash = vk1.hash_bytes();
+    println!("computed_vkHash: {}  program.vk: {}", hex::encode(computed_vkHash), hex::encode(program.vk.clone()));
+    println!("vk1 derivated hash: {}", hex::encode(vk1.hash_bytes().to_vec()));
     let mut buf = Vec::new();
     let wallet = LocalWallet::from_str("0xe5d76acbffb5be6d87002e2cd5622b6dfe715f73ac60c613f14ba2d3f735c20b")?;
     program.encode(&mut buf).expect("prost encode failed");
@@ -216,7 +228,7 @@ pub async fn run_client() -> Result<()> {
     };
     
     // Upload the artifact using the presigned URL
-    let artifact_bytes = AGGREGATION_ELF;
+    let artifact_bytes = FIBONACCI_ELF;//AGGREGATION_ELF;
     println!("Uploading artifact ({} bytes) to presigned URL...", artifact_bytes.len());
 
     let put_url = response_inner.artifact_presigned_url.clone().replace("spn-coordinator-001", "localhost");
@@ -242,13 +254,69 @@ pub async fn run_client() -> Result<()> {
     println!("Client sending proof request ");
     // let response = client.request_proof(request).await?;
     let response = prover_network_client.create_program(request).await?;
-    let response_inner = response.into_inner();
+    let program_response_inner = response.into_inner();
+    println!("Client create program response: TX Hash = {}", hex::encode(&program_response_inner.tx_hash));
+
+    // TODO create the stdin artifact
+    let mut stdin = SP1Stdin::new();
+    let n: u32 = 20;
+    stdin.write(&n);
+    // let artifact_type = ArtifactType::Stdin;
+    // let artifact_request = create_artifact_request(artifact_type).await?;
     
-    println!("Client create program response: TX Hash = {}", hex::encode(&response_inner.tx_hash));
+    // let response_inner = match artifact_client.create_artifact(artifact_request).await {
+    //     Ok(response) => {
+    //         let response_inner = response.into_inner();
+    //         println!("✓ artifact created successfully!");
+    //         println!("  Artifact URI: {}", response_inner.artifact_uri);
+    //         println!("  Presigned URL: {}", response_inner.artifact_presigned_url);
+    //         response_inner
+    //     },
+    //     Err(e) => {
+    //         eprintln!("✗ Failed to create artifact: {}", e);
+    //         return Err(anyhow::anyhow!("Failed to create artifact: {}", e));
+    //     }
+    // };
+    // let stdin_artifact_bytes = stdin.buffer.clone();
+    // let put_url = response_inner.artifact_presigned_url.clone().replace("spn-coordinator-001", "localhost");
+    // let upload_response = client
+    //     .put(put_url.clone())
+    //     .header("Content-Type", "application/binary")
+    //     .body(stdin_artifact_bytes.into_iter().flatten().collect::<Vec<u8>>())
+    //     .send()
+    //     .await
+    //     .map_err(|e| anyhow::anyhow!("Failed to upload artifact: {}", e))?;
+
+    // if upload_response.status().is_success() {
+    //     println!("✓ Artifact uploaded successfully!");
+    // } else {
+    //     eprintln!("✗ Failed to upload artifact. Status: {}", upload_response.status());
+    //     eprintln!("Response: {:?}", upload_response.text().await);
+    // }
+
+    // TODO request proof resquest
+    let private_key = "0x58301ea64f48a91e21f900bacf599eb61ec9331455db34f9b4279d5c652f368f";
+    let rpc_url = "http://localhost:50051";
+    let network_prover =
+            Arc::new(ProverClient::builder().network().private_key(&private_key).rpc_url(rpc_url).build());
+    let (proving_key, verification_key) = network_prover.setup(FIBONACCI_ELF);
+    println!("Calling prover. It should start computing the proof");
+    let proof = network_prover
+        .prove(&proving_key, &stdin)
+        .compressed()
+        .strategy(FulfillmentStrategy::Hosted)
+        .skip_simulation(true)
+        .gas_limit(10_000_000_000)
+        .cycle_limit(100_000_000)
+        .request_async()
+        //.run_async()
+        .await?;
+    
     
     // Wait between requests
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     
     println!("\n=== Client Finished ===");
+
     Ok(())
 }
