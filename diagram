@@ -1,0 +1,66 @@
+sequenceDiagram
+    autonumber
+    participant S as Service (your app)
+    participant A as Artifact Store (HTTP)
+    participant C as SPN Coordinator (gRPC)
+    participant N as SPN Node (Prover)
+
+    rect rgba(53, 39, 39, 1)
+    Note over S: 1) Program onboarding
+    S->>S: Build ELF, run setup() → (PK, VK)
+    S->>C: Create program artifact
+    C->>S: Create program artifact Response
+    S->>A: Upload Program ELF → program_uri
+    S->>C: create_program(vk_hash, vk_bytes, program_uri) [signed]
+    C-->>S: CreateProgramResponse
+    end
+
+    rect rgba(53, 39, 39, 1)
+    Note over S: 2) Prepare input (stdin)
+    S->>S: Serialize input → stdin bytes
+    S->>C: Create Stdin artifact
+    C->>S: Create Stdin artifact Response
+    S->>A: Upload stdin → stdin_uri
+    end
+
+    rect rgba(53, 39, 39, 1)
+    Note over S,N: 3) Request + polling
+    S->>C: RequestProofRequest({vk_hash, stdin_uri, version, mode, strategy, deadline, cycle_limit, gas_limit?}) [signed]
+    C->>C: Store ProofRequest {Assigned/Unexecuted, fulfiller?}
+    C-->>S: RequestProofResponse {request_id, tx_hash}
+
+    par Prover polling (in parallel)
+      loop every few seconds
+        N->>C: get_filtered_proof_requests({Assigned, fulfiller=<prover_addr>})
+        C-->>N: {requests...}
+        N->>C: get_filtered_proof_requests({Unexecutable, fulfiller=<prover_addr>})
+        C-->>N: {requests...}
+      end
+    end
+    end
+
+    rect rgba(53, 39, 39, 1)
+    Note over N: 4) Proving
+    N->>A: GET program_uri (ELF)
+    N->>C: get_program(vk_hash) → VK (and/or PK URI)
+    N->>A: GET stdin_uri
+    N->>N: Verify VK↔ELF, viability checks (cycle_limit vs deadline/throughput)
+    N->>C: execute_proof(request_id)
+    C->>C: set ExecutionStatus=Executing
+    C-->>N: ExecuteProofResponse
+    N->>N: Compute proof (CPU/GPU)
+    end
+
+    rect rgba(53, 39, 39, 1)
+    Note over N,S: 5) Fulfillment + retrieval
+    N->>C: fulfill_proof({request_id, proof_uri, public_values_hash}) [signed]
+    C->>A: Upload proof → proof_uri (and optional public_proof_uri)
+    C->>C: Set FulfillmentStatus=Fulfilled, ExecutionStatus=Executed
+    C-->>N: FulfillProofResponse
+
+
+    S->>C: get_proof_request_status(request_id) (poll or subscribe)
+    C-->>S: {Fulfilled, proof_uri, public_values_hash}
+    S->>A: Download proof Request from proof_uri
+    A->>S: Download proof Response from proof_uri
+    end
