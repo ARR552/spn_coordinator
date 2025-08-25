@@ -4,11 +4,16 @@ use std::time::Duration;
 use tonic::{Request, Response, Status, transport::{Channel, Endpoint}};
 use clap::Parser;
 
-use crate::commands::{run_proof_request_details, run_proof_request_status, run_get_program};
+use crate::commands::{run_proof_request_details, run_proof_request_status, run_get_program, run_verify_proof};
 
 /// Real gRPC client that makes actual gRPC calls
 pub struct ProverNetworkClient {
     client: prover_network_client::ProverNetworkClient<Channel>,
+}
+
+/// Verifier client for proof verification
+pub struct VerifierClient {
+    client: verifier_client::VerifierClient<Channel>,
 }
 
 impl ProverNetworkClient {
@@ -58,6 +63,31 @@ impl ProverNetworkClient {
     }
 }
 
+impl VerifierClient {
+    pub async fn new(url: String) -> Result<Self, Box<dyn std::error::Error>> {
+        let channel: Channel = Endpoint::new(url)?
+            .timeout(Duration::from_secs(15))
+            .connect_timeout(Duration::from_secs(15))
+            .keep_alive_while_idle(true)
+            .http2_keep_alive_interval(Duration::from_secs(15))
+            .keep_alive_timeout(Duration::from_secs(15))
+            .tcp_keepalive(Some(Duration::from_secs(30)))
+            .connect()
+            .await?;
+
+        let client = verifier_client::VerifierClient::new(channel);
+        Ok(Self { client })
+    }
+
+    pub async fn verify_proof(
+        &mut self,
+        request: VerifyProofRequest,
+    ) -> Result<Response<VerifyProofResponse>, Status> {
+        println!("Client requesting proof verification");
+        self.client.verify_proof(Request::new(request)).await
+    }
+}
+
 /// Client function that connects to the server
 pub async fn run_client() -> Result<()> {
     println!("\n=== Starting Client ===");
@@ -96,6 +126,15 @@ pub async fn run_client() -> Result<()> {
             #[arg(long)]
             vk_hash: String,
         },
+        /// Verify a proof
+        VerifyProof {
+            #[arg(long, group = "proof_source")]
+            proof_url: Option<String>,
+            #[arg(long, group = "proof_source")]
+            proof_file: Option<String>,
+            #[arg(long)]
+            vk: String,
+        },
     }
 
     let cli = Cli::parse();
@@ -109,6 +148,9 @@ pub async fn run_client() -> Result<()> {
         }
         Commands::GetProgram { url, vk_hash } => {
             run_get_program(url, vk_hash).await?;
+        }
+        Commands::VerifyProof { proof_url, proof_file, vk } => {
+            run_verify_proof(proof_url, proof_file, vk).await?;
         }
     }
     
