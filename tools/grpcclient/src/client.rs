@@ -4,7 +4,7 @@ use std::time::Duration;
 use tonic::{Request, Response, Status, transport::{Channel, Endpoint}};
 use clap::Parser;
 
-use crate::commands::{run_proof_request_details, run_proof_request_status, run_get_program};
+use crate::commands::{run_proof_request_details, run_proof_request_status, run_get_program, run_verify_proof};
 
 /// Real gRPC client that makes actual gRPC calls
 pub struct ProverNetworkClient {
@@ -96,6 +96,15 @@ pub async fn run_client() -> Result<()> {
             #[arg(long)]
             vk_hash: String,
         },
+        /// Verify a proof
+        VerifyProof {
+            #[arg(long, group = "proof_source")]
+            proof_url: Option<String>,
+            #[arg(long, group = "proof_source")]
+            proof_file: Option<String>,
+            #[arg(long)]
+            vk: String,
+        },
     }
 
     let cli = Cli::parse();
@@ -109,6 +118,9 @@ pub async fn run_client() -> Result<()> {
         }
         Commands::GetProgram { url, vk_hash } => {
             run_get_program(url, vk_hash).await?;
+        }
+        Commands::VerifyProof { proof_url, proof_file, vk } => {
+            run_verify_proof(proof_url, proof_file, vk).await?;
         }
     }
     
