@@ -4,6 +4,12 @@ use spn_coordinator::server::run_server;
 use tokio::sync::mpsc;
 use tokio::signal;
 
+// Initialize rustls crypto provider
+fn init_crypto_provider() {
+    use rustls::crypto::ring::default_provider;
+    let _ = rustls::crypto::CryptoProvider::install_default(default_provider());
+}
+
 /// Handle shutdown signals (SIGINT, SIGTERM)
 async fn shutdown_signal() {
     let ctrl_c = async {
@@ -35,6 +41,9 @@ async fn shutdown_signal() {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Initialize crypto provider before any TLS operations
+    init_crypto_provider();
+    
     println!("ProverNetwork gRPC - Server/Client Architecture");
     println!("===================================================");
     

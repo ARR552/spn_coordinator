@@ -1,6 +1,6 @@
 use anyhow::Result;
 use rpc_types::*;
-use tonic::{transport::{Channel, ClientTlsConfig, Endpoint}, IntoRequest, Request, Response, Status};
+use tonic::{transport::{Channel, ClientTlsConfig, Endpoint}, Request, Response, Status};
 use prost::Message;
 use std::time::Duration;
 use ethers::{utils::keccak256};
@@ -8,7 +8,7 @@ use ethers::signers::{LocalWallet};
 use std::str::FromStr;
 use std::{sync::Arc};
 use sp1_sdk::{
-    network::FulfillmentStrategy, HashableKey, NetworkProver, Prover, ProverClient, SP1ProofMode, SP1ProofWithPublicValues, SP1ProvingKey, SP1VerifyingKey, SP1_CIRCUIT_VERSION, SP1Stdin,
+    network::FulfillmentStrategy, HashableKey, Prover, ProverClient, SP1VerifyingKey, SP1Stdin,
 };
 
 /// The zkvm ELF binaries.
@@ -158,7 +158,7 @@ pub async fn create_program_request(program_uri: String) -> anyhow::Result<Creat
     let private_key = "0x58301ea64f48a91e21f900bacf599eb61ec9331455db34f9b4279d5c652f368f";
     let network_prover =
             Arc::new(ProverClient::builder().network().private_key(&private_key).build());
-    let (proving_key, verification_key) = network_prover.setup(FIBONACCI_ELF);
+    let (_proving_key, verification_key) = network_prover.setup(FIBONACCI_ELF);
     let program = rpc_types::CreateProgramRequestBody {
         vk_hash: verification_key.vk.hash_bytes().to_vec(),//hex::decode("005d763c1b4e00563d156f9ba8cc60561014267a5d3f5f16e2b8a47fa9dfe173").unwrap_or_default(),
         vk: bincode::serialize(&verification_key)?,//hex::decode("18c19a61c29c213edfea9e0e5f7b35610f968f43282c5002be4fd123980b3a4644a92d00fecded6ac7efd272fca32d3f487d864ef12bf638be069326153b79650edd32370c739032ac70962f7b08ef1376627c701343d63742584c2c0200000000000000070000000000000050726f6772616d1400000000000000010000000e0000000000000000001000000000000400000000000000427974651000000000000000010000000b0000000000000000000100000000000200000000000000070000000000000050726f6772616d00000000000000000400000000000000427974650100000000000000").unwrap_or_default(),
@@ -166,8 +166,8 @@ pub async fn create_program_request(program_uri: String) -> anyhow::Result<Creat
         nonce: 0,
     };
     let vk1: SP1VerifyingKey = bincode::deserialize(&program.vk)?;
-    let computed_vkHash = vk1.hash_bytes();
-    println!("computed_vkHash: {}  program.vk: {}", hex::encode(computed_vkHash), hex::encode(program.vk.clone()));
+    let computed_vk_hash = vk1.hash_bytes();
+    println!("computed_vk_hash: {}  program.vk: {}", hex::encode(computed_vk_hash), hex::encode(program.vk.clone()));
     println!("vk1 derivated hash: {}", hex::encode(vk1.hash_bytes().to_vec()));
     let mut buf = Vec::new();
     let wallet = LocalWallet::from_str("0xe5d76acbffb5be6d87002e2cd5622b6dfe715f73ac60c613f14ba2d3f735c20b")?;
@@ -236,7 +236,7 @@ pub async fn run_client() -> Result<()> {
     let upload_response = client
         .put(put_url.clone())
         .header("Content-Type", "application/binary")
-        .body(artifact_bytes.to_vec())
+        .body(bincode::serialize(artifact_bytes)?)
         .send()
         .await
         .map_err(|e| anyhow::anyhow!("Failed to upload artifact: {}", e))?;
@@ -299,9 +299,9 @@ pub async fn run_client() -> Result<()> {
     let rpc_url = "http://localhost:50051";
     let network_prover =
             Arc::new(ProverClient::builder().network().private_key(&private_key).rpc_url(rpc_url).build());
-    let (proving_key, verification_key) = network_prover.setup(FIBONACCI_ELF);
+    let (proving_key, _verification_key) = network_prover.setup(FIBONACCI_ELF);
     println!("Calling prover. It should start computing the proof");
-    let proof = network_prover
+    let _proof = network_prover
         .prove(&proving_key, &stdin)
         .compressed()
         .strategy(FulfillmentStrategy::Hosted)
