@@ -224,7 +224,7 @@ pub async fn run_client() -> Result<()> {
     let upload_response = client
         .put(put_url.clone())
         .header("Content-Type", "application/binary")
-        .body(artifact_bytes.to_vec())
+        .body(bincode::serialize(artifact_bytes)?)
         .send()
         .await
         .map_err(|e| anyhow::anyhow!("Failed to upload artifact: {}", e))?;
