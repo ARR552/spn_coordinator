@@ -53,6 +53,7 @@ axum = "0.8"
 tower = "0.5"
 bytes = "1.8"
 reqwest = { workspace = true }
+rustls = "0.23.31"
 
 [workspace.dependencies]
 rpc = { path = "crates/types/rpc" }
