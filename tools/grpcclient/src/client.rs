@@ -31,7 +31,6 @@ impl ProverNetworkClient {
         &mut self,
         request: RequestProofRequest,
     ) -> Result<Response<RequestProofResponse>, Status> {
-        println!("Client sending real gRPC request to server");
         self.client.request_proof(Request::new(request)).await
     }
     
@@ -39,14 +38,12 @@ impl ProverNetworkClient {
         &mut self,
         request: GetProofRequestStatusRequest,
     ) -> Result<Response<GetProofRequestStatusResponse>, Status> {
-        println!("Client requesting real gRPC status from server for: {:?}", hex::encode(&request.request_id));
         self.client.get_proof_request_status(Request::new(request)).await
     }
     pub async fn get_proof_request_details(
         &mut self,
         request: GetProofRequestDetailsRequest,
     ) -> Result<Response<GetProofRequestDetailsResponse>, Status> {
-        println!("Client requesting proof request details for: {:?}", hex::encode(&request.request_id));
         self.client.get_proof_request_details(Request::new(request)).await
     }
 
@@ -60,8 +57,6 @@ impl ProverNetworkClient {
 
 /// Client function that connects to the server
 pub async fn run_client() -> Result<()> {
-    println!("\n=== Starting Client ===");
-    
     // Wait a bit for server to start
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 

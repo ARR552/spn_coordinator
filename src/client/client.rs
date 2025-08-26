@@ -29,18 +29,6 @@ pub struct ArtifactServiceClient {
 
 impl ArtifactServiceClient {
     pub async fn new(endpoint: String) -> Result<Self, Box<dyn std::error::Error>> {
-        // Load the CA certificate to verify the server certificate
-        println!("Setting up TLS client configuration for artifact service...");
-        
-        let ca_pem = std::fs::read("testing-cert/ca.pem")
-            .map_err(|e| format!("Failed to read CA certificate: {}", e))?;
-        
-        println!("Loaded CA certificate for artifact service, size: {} bytes", ca_pem.len());
-        
-        // Configure TLS with the proper CA certificate
-        let tls_config = ClientTlsConfig::new()
-            .ca_certificate(tonic::transport::Certificate::from_pem(&ca_pem))
-            .domain_name("localhost");
         let tls_activated = false; // Set to true if TLS is enabled
         
         let mut endpoint = Endpoint::new(endpoint)
@@ -52,6 +40,19 @@ impl ArtifactServiceClient {
             .keep_alive_timeout(Duration::from_secs(15))
             .tcp_keepalive(Some(Duration::from_secs(30)));
         if tls_activated {
+            // Load the CA certificate to verify the server certificate
+            tracing::info!("Setting up TLS client configuration for artifact service...");
+            
+            let ca_pem = std::fs::read("testing-cert/ca.pem")
+                .map_err(|e| format!("Failed to read CA certificate: {}", e))?;
+            
+            tracing::debug!("Loaded CA certificate for artifact service, size: {} bytes", ca_pem.len());
+            
+            // Configure TLS with the proper CA certificate
+            let tls_config = ClientTlsConfig::new()
+                .ca_certificate(tonic::transport::Certificate::from_pem(&ca_pem))
+                .domain_name("localhost");
+
             endpoint = endpoint.tls_config(tls_config).map_err(|e| format!("TLS config error: {}", e))?
         }
 
@@ -67,25 +68,12 @@ impl ArtifactServiceClient {
         &mut self,
         request: CreateArtifactRequest,
     ) -> Result<Response<CreateArtifactResponse>, Status> {
-        println!("Client sending artifact creation request to server");
         self.client.create_artifact(Request::new(request)).await
     }
 }
 
 impl ProverNetworkClient {
     pub async fn new(endpoint: String) -> Result<Self, Box<dyn std::error::Error>> {
-        // Load the CA certificate to verify the server certificate
-        println!("Setting up TLS client configuration with proper CA...");
-        
-        let ca_pem = std::fs::read("testing-cert/ca.pem")
-            .map_err(|e| format!("Failed to read CA certificate: {}", e))?;
-        
-        println!("Loaded CA certificate, size: {} bytes", ca_pem.len());
-        
-        // Configure TLS with the proper CA certificate
-        let tls_config = ClientTlsConfig::new()
-            .ca_certificate(tonic::transport::Certificate::from_pem(&ca_pem))
-            .domain_name("localhost");
         let tls_activated = false; // Set to true if TLS is enabled
         
         let mut endpoint = Endpoint::new(endpoint)
@@ -97,6 +85,19 @@ impl ProverNetworkClient {
             .keep_alive_timeout(Duration::from_secs(15))
             .tcp_keepalive(Some(Duration::from_secs(30)));
         if tls_activated {
+            // Load the CA certificate to verify the server certificate
+            tracing::info!("Setting up TLS client configuration with proper CA...");
+            
+            let ca_pem = std::fs::read("testing-cert/ca.pem")
+                .map_err(|e| format!("Failed to read CA certificate: {}", e))?;
+            
+            tracing::debug!("Loaded CA certificate, size: {} bytes", ca_pem.len());
+            
+            // Configure TLS with the proper CA certificate
+            let tls_config = ClientTlsConfig::new()
+                .ca_certificate(tonic::transport::Certificate::from_pem(&ca_pem))
+                .domain_name("localhost");
+
             endpoint = endpoint.tls_config(tls_config).map_err(|e| format!("TLS config error: {}", e))?
         }
 
@@ -112,7 +113,6 @@ impl ProverNetworkClient {
         &mut self,
         request: RequestProofRequest,
     ) -> Result<Response<RequestProofResponse>, Status> {
-        println!("Client sending real gRPC request to server");
         self.client.request_proof(Request::new(request)).await
     }
     
@@ -120,7 +120,6 @@ impl ProverNetworkClient {
         &mut self,
         request: GetProofRequestStatusRequest,
     ) -> Result<Response<GetProofRequestStatusResponse>, Status> {
-        println!("Client requesting real gRPC status from server for: {:?}", hex::encode(&request.request_id));
         self.client.get_proof_request_status(Request::new(request)).await
     }
 
@@ -128,7 +127,6 @@ impl ProverNetworkClient {
         &mut self,
         request: CreateProgramRequest,
     ) -> Result<Response<CreateProgramResponse>, Status> {
-        println!("Client sending real gRPC request to server");
         self.client.create_program(Request::new(request)).await
     }
 }
@@ -180,21 +178,21 @@ pub async fn create_artifact_request(artifact_type: ArtifactType) -> anyhow::Res
 
 /// Client function that connects to the server
 pub async fn run_client() -> Result<()> {
-    println!("\n=== Starting Client ===");
+    tracing::info!("=== Starting Client ===");
     
     // Wait a bit for server to start
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
     
     let mut prover_network_client = ProverNetworkClient::new("http://127.0.0.1:50051".to_string()).await
         .map_err(|e| {
-            eprintln!("Detailed prover_network_client creation error: {:?}", e);
+            tracing::error!("Detailed prover_network_client creation error: {:?}", e);
             anyhow::anyhow!("Failed to create prover_network_client: {}", e)
         })?;
     
     // Create artifact service client
     let mut artifact_client = ArtifactServiceClient::new("http://127.0.0.1:50051".to_string()).await
         .map_err(|e| {
-            eprintln!("Detailed artifact_client creation error: {:?}", e);
+            tracing::error!("Detailed artifact_client creation error: {:?}", e);
             anyhow::anyhow!("Failed to create artifact_client: {}", e)
         })?;
     
@@ -204,20 +202,20 @@ pub async fn run_client() -> Result<()> {
     let response_inner = match artifact_client.create_artifact(artifact_request).await {
         Ok(response) => {
             let response_inner = response.into_inner();
-            println!("✓ artifact created successfully!");
-            println!("  Artifact URI: {}", response_inner.artifact_uri);
-            println!("  Presigned URL: {}", response_inner.artifact_presigned_url);
+            tracing::info!("✓ artifact created successfully!");
+            tracing::info!("  Artifact URI: {}", response_inner.artifact_uri);
+            tracing::info!("  Presigned URL: {}", response_inner.artifact_presigned_url);
             response_inner
         },
         Err(e) => {
-            eprintln!("✗ Failed to create artifact: {}", e);
+            tracing::error!("✗ Failed to create artifact: {}", e);
             return Err(anyhow::anyhow!("Failed to create artifact: {}", e));
         }
     };
     
     // Upload the artifact using the presigned URL
     let artifact_bytes = AGGREGATION_ELF;
-    println!("Uploading artifact ({} bytes) to presigned URL...", artifact_bytes.len());
+    tracing::info!("Uploading artifact ({} bytes) to presigned URL...", artifact_bytes.len());
 
     let put_url = response_inner.artifact_presigned_url.clone().replace("spn-coordinator-001", "localhost");
     let client = reqwest::Client::new();
@@ -230,25 +228,24 @@ pub async fn run_client() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to upload artifact: {}", e))?;
 
     if upload_response.status().is_success() {
-        println!("✓ Artifact uploaded successfully!");
+        tracing::info!("✓ Artifact uploaded successfully!");
     } else {
-        eprintln!("✗ Failed to upload artifact. Status: {}", upload_response.status());
-        eprintln!("Response: {:?}", upload_response.text().await);
+        tracing::error!("✗ Failed to upload artifact. Status: {}", upload_response.status());
+        tracing::error!("Response: {:?}", upload_response.text().await);
     }
 
     // Create a request
     let request = create_program_request(response_inner.artifact_presigned_url.clone()).await?;
     
-    println!("Client sending proof request ");
+    tracing::info!("Client sending proof request ");
     // let response = client.request_proof(request).await?;
     let response = prover_network_client.create_program(request).await?;
     let response_inner = response.into_inner();
     
-    println!("Client create program response: TX Hash = {}", hex::encode(&response_inner.tx_hash));
+    tracing::info!("Client create program response: TX Hash = {}", hex::encode(&response_inner.tx_hash));
     
     // Wait between requests
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     
-    println!("\n=== Client Finished ===");
     Ok(())
 }

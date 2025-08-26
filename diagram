@@ -5,7 +5,7 @@ sequenceDiagram
     participant C as SPN Coordinator (gRPC)
     participant N as SPN Node (Prover)
 
-    rect rgba(53, 39, 39, 1)
+    rect rgba(255, 255, 255, 1)
     Note over S: 1) Program onboarding
     S->>S: Build ELF, run setup() → (PK, VK)
     S->>C: Create program artifact
@@ -15,7 +15,7 @@ sequenceDiagram
     C-->>S: CreateProgramResponse
     end
 
-    rect rgba(53, 39, 39, 1)
+    rect rgba(255, 255, 255, 1)
     Note over S: 2) Prepare input (stdin)
     S->>S: Serialize input → stdin bytes
     S->>C: Create Stdin artifact
@@ -23,7 +23,7 @@ sequenceDiagram
     S->>A: Upload stdin → stdin_uri
     end
 
-    rect rgba(53, 39, 39, 1)
+    rect rgba(255, 255, 255, 1)
     Note over S,N: 3) Request + polling
     S->>C: RequestProofRequest({vk_hash, stdin_uri, version, mode, strategy, deadline, cycle_limit, gas_limit?}) [signed]
     C->>C: Store ProofRequest {Assigned/Unexecuted, fulfiller?}
@@ -39,7 +39,7 @@ sequenceDiagram
     end
     end
 
-    rect rgba(53, 39, 39, 1)
+    rect rgba(255, 255, 255, 1)
     Note over N: 4) Proving
     N->>A: GET program_uri (ELF)
     N->>C: get_program(vk_hash) → VK (and/or PK URI)
@@ -51,7 +51,7 @@ sequenceDiagram
     N->>N: Compute proof (CPU/GPU)
     end
 
-    rect rgba(53, 39, 39, 1)
+    rect rgba(255, 255, 255, 1)
     Note over N,S: 5) Fulfillment + retrieval
     N->>C: fulfill_proof({request_id, proof_uri, public_values_hash}) [signed]
     C->>A: Upload proof → proof_uri (and optional public_proof_uri)

@@ -37,7 +37,7 @@ impl HttpServer {
             .with_state(storage);
 
         let addr = format!("0.0.0.0:{}", self.port);
-        println!("HTTP: Starting HTTP server on {}", addr);
+        tracing::info!("HTTP: Starting HTTP server on {}", addr);
 
         let listener = tokio::net::TcpListener::bind(&addr).await?;
         axum::serve(listener, app).await?;
@@ -57,14 +57,14 @@ async fn upload_artifact(
     State(storage): State<Arc<Mutex<HashMap<String, Bytes>>>>,
     body: Bytes,
 ) -> Result<&'static str, StatusCode> {
-    println!("HTTP: Received PUT request for artifact: {}/{}", artifact_type, artifact_id);
-    println!("HTTP: Body size: {} bytes", body.len());
+    tracing::info!("HTTP: Received PUT request for artifact: {}/{}", artifact_type, artifact_id);
+    tracing::debug!("HTTP: Body size: {} bytes", body.len());
     
     // Store the bytes in memory
     let key: String = format!("{}/{}", artifact_type, artifact_id);
     storage.lock().await.insert(key, body);
     
-    println!("HTTP: Successfully stored artifact: {}", artifact_id);
+    tracing::debug!("HTTP: Successfully stored artifact: {}", artifact_id);
     
     Ok("Artifact uploaded successfully")
 }
@@ -74,22 +74,22 @@ async fn download_artifact(
     Path((artifact_type, artifact_id)): Path<(String, String)>,
     State(storage): State<Arc<Mutex<HashMap<String, Bytes>>>>,
 ) -> Result<(StatusCode, Vec<u8>), StatusCode> {
-    println!("HTTP: Received GET request for artifact: {}/{}", artifact_type, artifact_id);
+    tracing::info!("HTTP: Received GET request for artifact: {}/{}", artifact_type, artifact_id);
     
     let storage_guard = storage.lock().await;
     let key: String = format!("{}/{}", artifact_type, artifact_id);
     if let Some(data) = storage_guard.get(&key) {
-        println!("HTTP: Found artifact: {} ({} bytes)", artifact_id, data.len());
+        tracing::debug!("HTTP: Found artifact: {} ({} bytes)", artifact_id, data.len());
         Ok((StatusCode::OK, data.to_vec()))
     } else {
-        println!("HTTP: Artifact not found: {}", artifact_id);
+        tracing::error!("HTTP: Artifact not found: {}", artifact_id);
         Err(StatusCode::NOT_FOUND)
     }
 }
 
 /// Handler for GET /health
 async fn health_check() -> &'static str {
-    println!("HTTP: Health check requested");
+    tracing::debug!("HTTP: Health check requested");
     "OK"
 }
 

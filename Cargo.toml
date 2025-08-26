@@ -34,6 +34,7 @@ name = "http_test"
 path = "src/bin/http_test.rs"
 
 [dependencies]
+logger = { path = "crates/logger" }
 rpc-types = { path = "crates/types/rpc" }
 tokio = { workspace = true }
 anyhow = { workspace = true }
@@ -48,6 +49,7 @@ ethers-core = "2.0.14"
 eyre = "0.6.12"
 alloy.workspace = true
 prost.workspace = true
+tracing = "0.1.41"
 ethers = "2.0.14"
 axum = "0.8"
 tower = "0.5"

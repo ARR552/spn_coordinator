@@ -3,7 +3,6 @@ use rpc_types::*;
 use std::collections::HashMap;
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
-use eyre;
 use rand::random;
 
 /// Real gRPC service implementation for ArtifactStore
@@ -21,7 +20,7 @@ impl artifact_store_server::ArtifactStore for ArtifactStoreServiceImpl {
         request: Request<CreateArtifactRequest>,
     ) -> Result<Response<CreateArtifactResponse>, Status> {
         let req = request.into_inner();
-        println!("ARTIFACT: Server received create_artifact request with signature: {:?}", hex::encode(&req.signature));
+        tracing::debug!("ARTIFACT: Server received create_artifact request with signature: {:?}", hex::encode(&req.signature));
         
         // Validate the artifact type
         let artifact_type = ArtifactType::try_from(req.artifact_type)
@@ -36,8 +35,7 @@ impl artifact_store_server::ArtifactStore for ArtifactStoreServiceImpl {
         let presigned_url = generate_presigned_url(&artifact_type, &artifact_id);
         let artifact_uri = presigned_url.clone();
 
-        println!("ARTIFACT: Generated artifact URI: {}", artifact_uri);
-        println!("ARTIFACT: Generated presigned URL: {}", presigned_url);
+        tracing::info!("ARTIFACT: Generated presigned URL: {}", presigned_url);
         
         // Store the artifact metadata
         self.artifacts.lock().await.insert(
@@ -50,7 +48,7 @@ impl artifact_store_server::ArtifactStore for ArtifactStoreServiceImpl {
             artifact_presigned_url: presigned_url,
         };
         
-        println!("ARTIFACT: Successfully created artifact: {}", artifact_uri);
+        tracing::info!("ARTIFACT: Successfully created artifact: {}", artifact_uri);
         Ok(Response::new(response))
     }
 }
@@ -71,17 +69,4 @@ fn generate_presigned_url(artifact_type: &ArtifactType, artifact_id: &str) -> St
     // Generate a URL pointing to our HTTP server
     // The client will use this URL to PUT the artifact data
     format!("http://spn-coordinator-001:8082/artifacts/{:?}/{}", artifact_type, artifact_id)
-}
-
-/// Verify signature for artifact creation (placeholder implementation)
-fn _verify_artifact_signature(signature: &[u8]) -> Result<Vec<u8>, eyre::Error> {
-    // TODO: Implement proper signature verification
-    // This would require:
-    // 1. Define the message format for artifact creation
-    // 2. Implement the same signing/verification logic as in prover_network_service.rs
-    // 3. Recover the signer address from the signature
-    println!("ARTIFACT: Verifying artifact signature: {:?}", hex::encode(signature));
-    // For now, return a mock address
-    let mock_address = vec![0x42; 20]; // Mock 20-byte address
-    Ok(mock_address)
 }
