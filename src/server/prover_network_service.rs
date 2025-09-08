@@ -12,9 +12,21 @@ use prost::Message;
 /// Real gRPC service implementation for ProverNetwork
 #[derive(Debug, Default)]
 pub struct ProverNetworkServiceImpl {
+    // Base URL for artifact uploads (e.g., "http://localhost:8082")
+    pub artifact_base_url: String,
     /// TODO Store proof requests in memory (in real implementation this would be a database)  
     proof_requests: Mutex<HashMap<Vec<u8>, (ProofRequest, GetProofRequestStatusResponse)>>,
     programs: Mutex<HashMap<Vec<u8>, Program>>,
+}
+
+impl ProverNetworkServiceImpl {
+    pub fn new(artifact_base_url: String) -> Self {
+        Self {
+            proof_requests: Mutex::new(HashMap::new()),
+            programs: Mutex::new(HashMap::new()),
+            artifact_base_url: artifact_base_url,
+        }
+    }
 }
 
 #[tonic::async_trait]
@@ -128,7 +140,7 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         let mut requests = self.proof_requests.lock().await;
         if let Some((proof_request, status)) = requests.get_mut(&body.request_id) {
             // Upload proof
-            let url = generate_proof_url();
+            let url = generate_proof_url(self.artifact_base_url.as_str());
             let client = reqwest::Client::new();
             let upload_response = client
                 .put(url.clone())
@@ -978,8 +990,8 @@ pub fn recover_signer_addr(msg_bytes: Vec<u8>, sig_bytes: &[u8]) -> eyre::Result
 //     Ok(addr)
 // }
 
-fn generate_proof_url() -> String {
+fn generate_proof_url(artifact_base_url: &str) -> String {
     // Generate a URL pointing to our HTTP server
     // The client will use this URL to PUT the artifact data
-    format!("http://localhost:8082/artifacts/Proof/{}", hex::encode(random::<[u8; 16]>()))
+    format!("{}/artifacts/Proof/{}", artifact_base_url, hex::encode(random::<[u8; 16]>()))
 }

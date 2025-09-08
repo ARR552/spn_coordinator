@@ -14,13 +14,15 @@ use axum::{
 pub struct HttpServer {
     /// In-memory storage for uploaded artifacts
     pub storage: Arc<Mutex<HashMap<String, Bytes>>>,
+    pub addr: String,
     pub port: u16,
 }
 
 impl HttpServer {
-    pub fn new(port: u16) -> Self {
+    pub fn new(addr: String, port: u16) -> Self {
         Self {
             storage: Arc::new(Mutex::new(HashMap::new())),
+            addr,
             port,
         }
     }
@@ -36,10 +38,10 @@ impl HttpServer {
             .route("/health", get(health_check))
             .with_state(storage);
 
-        let addr = format!("0.0.0.0:{}", self.port);
-        tracing::info!("HTTP: Starting HTTP server on {}", addr);
+        let url = format!("{}:{}", self.addr, self.port);
+        tracing::info!("HTTP: Starting HTTP server on {}", url);
 
-        let listener = tokio::net::TcpListener::bind(&addr).await?;
+        let listener = tokio::net::TcpListener::bind(&url).await?;
         axum::serve(listener, app).await?;
 
         Ok(())
@@ -99,7 +101,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_storage_operations() {
-        let server = HttpServer::new(0); // Use port 0 for testing
+        let server = HttpServer::new("0.0.0.0".to_string(), 0); // Use port 0 for testing
         let storage = server.get_storage();
         
         let test_data = Bytes::from("test data");

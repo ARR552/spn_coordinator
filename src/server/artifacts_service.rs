@@ -8,8 +8,19 @@ use rand::random;
 /// Real gRPC service implementation for ArtifactStore
 #[derive(Debug, Default)]
 pub struct ArtifactStoreServiceImpl {
+    // Base URL for artifact uploads (e.g., "http://localhost:8082")
+    pub artifact_base_url: String,
     /// TODO Store artifacts in memory (in real implementation this would be a database or S3)  
     artifacts: Mutex<HashMap<String, (ArtifactType, String)>>, // artifact_uri -> (type, presigned_url)
+}
+
+impl ArtifactStoreServiceImpl {
+    pub fn new(artifact_base_url: String) -> Self {
+        Self {
+            artifact_base_url: artifact_base_url,
+            artifacts: Mutex::new(HashMap::new()),
+        }
+    }
 }
 
 #[tonic::async_trait]
@@ -32,7 +43,7 @@ impl artifact_store_server::ArtifactStore for ArtifactStoreServiceImpl {
         // Generate unique artifact URI and presigned URL
         let artifact_id = generate_artifact_id();
         // let artifact_uri = generate_artifact_uri(&artifact_type, &artifact_id);
-        let presigned_url = generate_presigned_url(&artifact_type, &artifact_id);
+        let presigned_url = generate_presigned_url(&self.artifact_base_url, &artifact_type, &artifact_id);
         let artifact_uri = presigned_url.clone();
 
         tracing::info!("ARTIFACT: Generated presigned URL: {}", presigned_url);
@@ -65,8 +76,8 @@ fn generate_artifact_id() -> String {
 // }
 
 /// Generate a presigned URL for artifact upload
-fn generate_presigned_url(artifact_type: &ArtifactType, artifact_id: &str) -> String {
+fn generate_presigned_url(artifact_base_url: &str, artifact_type: &ArtifactType, artifact_id: &str) -> String {
     // Generate a URL pointing to our HTTP server
     // The client will use this URL to PUT the artifact data
-    format!("http://spn-coordinator-001:8082/artifacts/{:?}/{}", artifact_type, artifact_id)
+    format!("{}/artifacts/{:?}/{}", artifact_base_url, artifact_type, artifact_id)
 }

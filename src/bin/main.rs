@@ -4,6 +4,14 @@ use spn_coordinator::server::run_server;
 use tokio::sync::mpsc;
 use tokio::signal;
 use logger;
+use clap::Parser;
+use spn_coordinator::config::*;
+
+#[derive(Parser, Debug)]
+struct Cli {
+    #[arg(long)]
+    config: Option<std::path::PathBuf>,
+}
 
 // Initialize rustls crypto provider
 fn init_crypto_provider() {
@@ -42,8 +50,14 @@ async fn shutdown_signal() {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let cli = Cli::parse();
+    // Load config settings
+    let config = config::load_config(cli.config)?;
+
     // Initialize logger
     logger::init();
+
+    tracing::info!("Loaded config: {:?}", config);
 
     // Initialize crypto provider before any TLS operations
     init_crypto_provider();
@@ -56,7 +70,7 @@ async fn main() -> Result<()> {
     
     // Spawn server task that runs in background
     let server_handle = tokio::spawn(async move {
-        if let Err(e) = run_server(shutdown_rx).await {
+        if let Err(e) = run_server(config.clone(), shutdown_rx).await {
             tracing::error!("Server error: {}", e);
         }
     });
