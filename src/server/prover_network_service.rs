@@ -1,31 +1,136 @@
 use anyhow::Result;
 use rpc_types::*;
-use std::collections::HashMap;
-use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
 use ethers_core::types::{Signature};
 use ethers_core::utils::hash_message; // adds the EIP-191 prefix
 use eyre;
 use rand::random;
 use prost::Message;
+use std::sync::Arc;
+use rocksdb::{DB, Options, ColumnFamilyDescriptor};
 
 /// Real gRPC service implementation for ProverNetwork
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ProverNetworkServiceImpl {
     // Base URL for artifact uploads (e.g., "http://localhost:8082")
     pub artifact_base_url: String,
-    /// TODO Store proof requests in memory (in real implementation this would be a database)  
-    proof_requests: Mutex<HashMap<Vec<u8>, (ProofRequest, GetProofRequestStatusResponse)>>,
-    programs: Mutex<HashMap<Vec<u8>, Program>>,
+    /// RocksDB database with separate column families for proof requests and programs
+    db: Arc<DB>,
 }
 
 impl ProverNetworkServiceImpl {
-    pub fn new(artifact_base_url: String) -> Self {
-        Self {
-            proof_requests: Mutex::new(HashMap::new()),
-            programs: Mutex::new(HashMap::new()),
-            artifact_base_url: artifact_base_url,
+    pub fn new(artifact_base_url: String) -> Result<Self> {
+        let db_path = "prover_network_db";
+        
+        // Define column families for proof requests and programs
+        let cf_names = ["proof_requests", "programs"];
+        let mut cf_descriptors = Vec::new();
+        
+        for cf_name in &cf_names {
+            cf_descriptors.push(ColumnFamilyDescriptor::new(*cf_name, Options::default()));
         }
+        
+        let mut db_opts = Options::default();
+        db_opts.create_missing_column_families(true);
+        db_opts.create_if_missing(true);
+        
+        let db = DB::open_cf_descriptors(&db_opts, db_path, cf_descriptors)
+            .map_err(|e| anyhow::anyhow!("Failed to open RocksDB: {}", e))?;
+        
+        Ok(Self {
+            artifact_base_url,
+            db: Arc::new(db),
+        })
+    }
+
+    // Helper method to store proof request data
+    fn store_proof_request(&self, request_id: &[u8], proof_request: &ProofRequest, status_response: &GetProofRequestStatusResponse) -> Result<(), Status> {
+        let table_name = "proof_requests";
+        let column_family_handle = self.db.cf_handle(table_name)
+            .ok_or_else(|| Status::internal("Column family 'proof_requests' not found"))?;
+        
+        // Serialize the data as a tuple (ProofRequest, GetProofRequestStatusResponse)
+        let data = (proof_request, status_response);
+        let serialized_data = bincode::serialize(&data)
+            .map_err(|e| Status::internal(format!("Failed to serialize proof request data: {}", e)))?;
+        
+        self.db.put_cf(&column_family_handle, request_id, serialized_data)
+            .map_err(|e| Status::internal(format!("Failed to store proof request: {}", e)))?;
+        
+        Ok(())
+    }
+
+    // Helper method to retrieve proof request data
+    fn get_proof_request(&self, request_id: &[u8]) -> Result<Option<(ProofRequest, GetProofRequestStatusResponse)>, Status> {
+        let table_name = "proof_requests";
+        let column_family_handle = self.db.cf_handle(table_name)
+            .ok_or_else(|| Status::internal("Column family 'proof_requests' not found"))?;
+        
+        match self.db.get_cf(&column_family_handle, request_id) {
+            Ok(Some(value)) => {
+                let data: (ProofRequest, GetProofRequestStatusResponse) = bincode::deserialize(&value)
+                    .map_err(|e| Status::internal(format!("Failed to deserialize proof request data: {}", e)))?;
+                Ok(Some(data))
+            }
+            Ok(None) => Ok(None),
+            Err(e) => Err(Status::internal(format!("Failed to retrieve proof request: {}", e))),
+        }
+    }
+
+    // Helper method to update proof request data
+    fn update_proof_request(&self, request_id: &[u8], proof_request: &ProofRequest, status_response: &GetProofRequestStatusResponse) -> Result<(), Status> {
+        self.store_proof_request(request_id, proof_request, status_response)
+    }
+
+    // Helper method to store program data
+    fn store_program(&self, vk_hash: &[u8], program: &Program) -> Result<(), Status> {
+        let table_name = "programs";
+        let column_family_handle = self.db.cf_handle(table_name)
+            .ok_or_else(|| Status::internal("Column family 'programs' not found"))?;
+        
+        let serialized_program = bincode::serialize(program)
+            .map_err(|e| Status::internal(format!("Failed to serialize program: {}", e)))?;
+        
+        self.db.put_cf(&column_family_handle, vk_hash, serialized_program)
+            .map_err(|e| Status::internal(format!("Failed to store program: {}", e)))?;
+        
+        Ok(())
+    }
+
+    // Helper method to retrieve program data
+    fn get_program_by_vk_hash(&self, vk_hash: &[u8]) -> Result<Option<Program>, Status> {
+        let table_name = "programs";
+        let column_family_handle = self.db.cf_handle(table_name)
+            .ok_or_else(|| Status::internal("Column family 'programs' not found"))?;
+        
+        match self.db.get_cf(&column_family_handle, vk_hash) {
+            Ok(Some(value)) => {
+                let program: Program = bincode::deserialize(&value)
+                    .map_err(|e| Status::internal(format!("Failed to deserialize program: {}", e)))?;
+                Ok(Some(program))
+            }
+            Ok(None) => Ok(None),
+            Err(e) => Err(Status::internal(format!("Failed to retrieve program: {}", e))),
+        }
+    }
+
+    // Helper method to get all proof requests (for filtering operations)
+    fn get_all_proof_requests(&self) -> Result<Vec<(Vec<u8>, ProofRequest, GetProofRequestStatusResponse)>, Status> {
+        let table_name = "proof_requests";
+        let column_family_handle = self.db.cf_handle(table_name)
+            .ok_or_else(|| Status::internal("Column family 'proof_requests' not found"))?;
+        
+        let mut requests = Vec::new();
+        let iter = self.db.iterator_cf(&column_family_handle, rocksdb::IteratorMode::Start);
+        
+        for item in iter {
+            let (key, value) = item.map_err(|e| Status::internal(format!("Failed to iterate proof requests: {}", e)))?;
+            let (proof_request, status_response): (ProofRequest, GetProofRequestStatusResponse) = bincode::deserialize(&value)
+                .map_err(|e| Status::internal(format!("Failed to deserialize proof request data: {}", e)))?;
+            requests.push((key.to_vec(), proof_request, status_response));
+        }
+        
+        Ok(requests)
     }
 }
 
@@ -72,8 +177,7 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         tracing::info!("PROVER_NETWORK: Server Recovered requester address: {:?}", hex::encode(&requester));
         let now = chrono::Utc::now().timestamp() as u64;
         let vk_hash = req.body.as_ref().map(|b| b.vk_hash.clone()).unwrap_or_default();
-        let programs = self.programs.lock().await;
-        let program = programs.get(&vk_hash);
+        let program = self.get_program_by_vk_hash(&vk_hash).ok().flatten();
         let proof_request = ProofRequest {
                 request_id: request_id.clone(),
                 vk_hash: vk_hash,
@@ -93,13 +197,15 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
                 whitelist: req.body.as_ref().map(|b| b.whitelist.clone()).unwrap_or_default(),
                 requester: requester.clone(),
                 fulfiller: Some(requester.clone()),
-                program_uri: program.map(|p| p.program_uri.clone()).unwrap_or_default(),
-                program_public_uri: program.map(|p| p.program_uri.clone()).unwrap_or_default(),
+                program_uri: program.as_ref().map(|p| p.program_uri.clone()).unwrap_or_default(),
+                program_public_uri: program.as_ref().map(|p| p.program_uri.clone()).unwrap_or_default(),
                 stdin_uri: req.body.as_ref().map(|b| b.stdin_uri.clone()).unwrap_or_default(),
                 stdin_public_uri: req.body.as_ref().map(|b| b.stdin_uri.clone()).unwrap_or_default(),
                 ..Default::default()
             };
-        self.proof_requests.lock().await.insert(request_id, (proof_request, status_response));
+        
+        // Store the proof request in RocksDB
+        self.store_proof_request(&request_id, &proof_request, &status_response)?;
         
         Ok(Response::new(response))
     }
@@ -111,9 +217,8 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         let req = request.into_inner();
         tracing::info!("PROVER_NETWORK: Server Received status request for ID: {:?}", hex::encode(&req.request_id));
         
-        let requests = self.proof_requests.lock().await;
-        if let Some((_, status)) = requests.get(&req.request_id) {
-            Ok(Response::new(status.clone()))
+        if let Some((_, status)) = self.get_proof_request(&req.request_id)? {
+            Ok(Response::new(status))
         } else {
             Err(Status::not_found("Proof request not found"))
         }
@@ -137,8 +242,8 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         let body = req.body.ok_or_else(|| Status::invalid_argument("Request body is required"))?;
         tracing::debug!("PROVER_NETWORK: domain: {}, request_id: {}, variant: {}, nonce: {}, reserved_metadata: {:?}", hex::encode(&body.domain), hex::encode(&body.request_id), body.variant, body.nonce, body.reserved_metadata);
         let tx_hash_bytes = random::<[u8; 32]>().to_vec();
-        let mut requests = self.proof_requests.lock().await;
-        if let Some((proof_request, status)) = requests.get_mut(&body.request_id) {
+        
+        if let Some((mut proof_request, mut status)) = self.get_proof_request(&body.request_id)? {
             // Upload proof
             let url = generate_proof_url(self.artifact_base_url.as_str());
             let client = reqwest::Client::new();
@@ -172,6 +277,9 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
             proof_request.fulfilled_at = Some(now);
             proof_request.execution_status = ExecutionStatus::Executed as i32;
             
+            // Update the proof request in RocksDB
+            self.update_proof_request(&body.request_id, &proof_request, &status)?;
+            
             let response = FulfillProofResponse {
                 tx_hash: tx_hash_bytes.clone(),
                 body: Some(FulfillProofResponseBody {}),
@@ -191,14 +299,16 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         // Extract body safely from Option
         let body = request.into_inner().body.ok_or_else(|| Status::invalid_argument("Request body is required"))?;
         
-        let mut requests = self.proof_requests.lock().await;
-        if let Some((proof_request, status)) = requests.get_mut(&body.request_id) {
+        if let Some((mut proof_request, mut status)) = self.get_proof_request(&body.request_id)? {
             // Update fulfillment status to Unfulfillable
             status.fulfillment_status = FulfillmentStatus::Unfulfillable as i32;
             let now = chrono::Utc::now().timestamp() as u64;
             proof_request.fulfillment_status = status.fulfillment_status;
             proof_request.updated_at = now;
             proof_request.error = body.error.unwrap_or(0); // Unwrap Option<i32> to i32, default to 0
+            
+            // Update the proof request in RocksDB
+            self.update_proof_request(&body.request_id, &proof_request, &status)?;
             
             let response = FailFulfillmentResponse {
                 tx_hash: proof_request.tx_hash.clone(),
@@ -214,10 +324,9 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         let req_inner = _request.into_inner();
         tracing::info!("PROVER_NETWORK: Request ID received: {:?}", hex::encode(&req_inner.request_id));
         
-        let requests = self.proof_requests.lock().await;
-        if let Some((request, _)) = requests.get(&req_inner.request_id) {            
+        if let Some((request, _)) = self.get_proof_request(&req_inner.request_id)? {            
             let response = GetProofRequestDetailsResponse {
-                request: Some(request.clone()),
+                request: Some(request),
             };
             tracing::debug!("PROVER_NETWORK: Found request, returning details");
             Ok(Response::new(response))
@@ -231,10 +340,12 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         // Clone the request data for logging before consuming the request
         let request_data = _request.get_ref().clone();
         let req_inner = _request.into_inner();
-        let requests = self.proof_requests.lock().await;
-        let mut filtered_requests: Vec<ProofRequest> = requests
-            .values()
-            .map(|(req, _)| req.clone())
+        
+        // Get all proof requests from RocksDB
+        let all_requests = self.get_all_proof_requests()?;
+        let mut filtered_requests: Vec<ProofRequest> = all_requests
+            .into_iter()
+            .map(|(_, req, _)| req)
             .filter(|req| {
             // Filter by requester if provided
             if let Some(ref filter_requester) = req_inner.requester {
@@ -436,16 +547,14 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
     async fn get_program(&self, _request: Request<GetProgramRequest>) -> Result<Response<GetProgramResponse>, Status> {
         let request_inner = _request.into_inner();
         tracing::info!("PROVER_NETWORK: Received get_program request: {:?}", hex::encode(&request_inner.vk_hash));
-        // Check if the requested vk_hash exists
-        let programs: tokio::sync::MutexGuard<'_, HashMap<Vec<u8>, Program>> = self.programs.lock().await;
-
-        if let Some(program) = programs.get(&request_inner.vk_hash) {            
+        
+        if let Some(program) = self.get_program_by_vk_hash(&request_inner.vk_hash)? {            
             let response = GetProgramResponse {
-                program: Some(program.clone()),
+                program: Some(program),
             };
             Ok(Response::new(response))
         } else {
-            Err(Status::not_found("Proof request not found"))
+            Err(Status::not_found("Program not found"))
         }
     }
 
@@ -465,8 +574,9 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
             owner: requester.clone(),
             created_at: chrono::Utc::now().timestamp() as u64,
         };
-        let mut programs: tokio::sync::MutexGuard<'_, HashMap<Vec<u8>, Program>> = self.programs.lock().await;
-        programs.insert(vk_hash_key, program.clone());
+        
+        // Store the program in RocksDB
+        self.store_program(&vk_hash_key, &program)?;
 
         let response = CreateProgramResponse {
             tx_hash: random::<[u8; 32]>().to_vec(),
