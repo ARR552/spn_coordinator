@@ -7,7 +7,7 @@ async fn main() -> Result<()> {
     logger::init();
     tracing::info!("Starting HTTP server only...");
     
-    let http_server = HttpServer::new("0.0.0.0".to_string(), 8082); // Use port 8082 to avoid conflict
+    let http_server = HttpServer::new("0.0.0.0".to_string(), 8082)?; // Use port 8082 to avoid conflict
     if let Err(e) = http_server.start().await {
         tracing::error!("HTTP server error: {}", e);
         return Err(anyhow::anyhow!("HTTP server failed: {}", e));

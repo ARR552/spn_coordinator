@@ -46,9 +46,15 @@ pub async fn run_server(cfg: Config, mut shutdown_rx: mpsc::Receiver<()>) -> Res
 
     // Start HTTP server in a separate task
     let http_server_handle = tokio::spawn(async move {
-        let http_server = HttpServer::new(cfg.server.http_addr, cfg.server.http_port);
-        if let Err(e) = http_server.start().await {
-            tracing::error!("HTTP server error: {}", e);
+        match HttpServer::new(cfg.server.http_addr, cfg.server.http_port) {
+            Ok(http_server) => {
+                if let Err(e) = http_server.start().await {
+                    tracing::error!("HTTP server error: {}", e);
+                }
+            }
+            Err(e) => {
+                tracing::error!("Failed to create HTTP server: {}", e);
+            }
         }
     });
 
