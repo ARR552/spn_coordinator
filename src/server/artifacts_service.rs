@@ -1,24 +1,50 @@
 use anyhow::Result;
 use rpc_types::*;
-use std::collections::HashMap;
-use tokio::sync::Mutex;
+use std::sync::Arc;
 use tonic::{Request, Response, Status};
 use rand::random;
+use rocksdb::{DB, Options, ColumnFamilyDescriptor};
 
 /// Real gRPC service implementation for ArtifactStore
-#[derive(Debug, Default)]
 pub struct ArtifactStoreServiceImpl {
     // Base URL for artifact uploads (e.g., "http://localhost:8082")
     pub artifact_base_url: String,
-    /// TODO Store artifacts in memory (in real implementation this would be a database or S3)  
-    artifacts: Mutex<HashMap<String, (ArtifactType, String)>>, // artifact_uri -> (type, presigned_url)
+    /// RocksDB database with separate column families for each artifact type
+    db: Arc<DB>,
 }
 
 impl ArtifactStoreServiceImpl {
-    pub fn new(artifact_base_url: String) -> Self {
-        Self {
-            artifact_base_url: artifact_base_url,
-            artifacts: Mutex::new(HashMap::new()),
+    pub fn new(artifact_base_url: String) -> Result<Self> {
+        let db_path = "artifacts_db";
+        
+        // Define column families for each artifact type
+        let cf_names = ["program", "stdin", "proof", "transaction", "unspecified"];
+        let mut cf_descriptors = Vec::new();
+        
+        for cf_name in &cf_names {
+            cf_descriptors.push(ColumnFamilyDescriptor::new(*cf_name, Options::default()));
+        }
+        
+        let mut db_opts = Options::default();
+        db_opts.create_missing_column_families(true);
+        db_opts.create_if_missing(true);
+        
+        let db = DB::open_cf_descriptors(&db_opts, db_path, cf_descriptors)
+            .map_err(|e| anyhow::anyhow!("Failed to open RocksDB: {}", e))?;
+        
+        Ok(Self {
+            artifact_base_url,
+            db: Arc::new(db),
+        })
+    }
+    
+    fn get_table_name_for_artifact_type(artifact_type: &ArtifactType) -> &'static str {
+        match artifact_type {
+            ArtifactType::Program => "program",
+            ArtifactType::Stdin => "stdin", 
+            ArtifactType::Proof => "proof",
+            ArtifactType::Transaction => "transaction",
+            ArtifactType::UnspecifiedArtifactType => "unspecified",
         }
     }
 }
@@ -48,11 +74,15 @@ impl artifact_store_server::ArtifactStore for ArtifactStoreServiceImpl {
 
         tracing::info!("ARTIFACT: Generated presigned URL: {}", presigned_url);
         
-        // Store the artifact metadata
-        self.artifacts.lock().await.insert(
-            artifact_uri.clone(),
-            (artifact_type, presigned_url.clone())
-        );
+        // Store the artifact metadata in RocksDB
+        let column_family_name = Self::get_table_name_for_artifact_type(&artifact_type);
+        let artifact_column_family_handle = self.db.cf_handle(column_family_name)
+            .ok_or_else(|| Status::internal(format!("Column family '{}' not found", column_family_name)))?;
+        
+        // Serialize the presigned URL as the value
+        let value = presigned_url.as_bytes();
+        self.db.put_cf(&artifact_column_family_handle, artifact_id.as_bytes(), value)
+            .map_err(|e| Status::internal(format!("Failed to store artifact: {}", e)))?;
         
         let response = CreateArtifactResponse {
             artifact_uri: artifact_uri.clone(),
@@ -61,6 +91,26 @@ impl artifact_store_server::ArtifactStore for ArtifactStoreServiceImpl {
         
         tracing::info!("ARTIFACT: Successfully created artifact: {}", artifact_uri);
         Ok(Response::new(response))
+    }
+}
+
+impl ArtifactStoreServiceImpl {
+    /// Get artifact metadata by artifact_id and type
+    pub fn get_artifact(&self, artifact_type: &ArtifactType, artifact_id: &str) -> Result<Option<String>, Status> {
+        // column family in rocksDB == table in sql
+        let column_family_name = Self::get_table_name_for_artifact_type(artifact_type);
+        let artifact_column_family_handle = self.db.cf_handle(column_family_name)
+            .ok_or_else(|| Status::internal(format!("Column family '{}' not found", column_family_name)))?;
+        
+        match self.db.get_cf(&artifact_column_family_handle, artifact_id.as_bytes()) {
+            Ok(Some(value)) => {
+                let presigned_url = String::from_utf8(value)
+                    .map_err(|e| Status::internal(format!("Failed to decode presigned URL: {}", e)))?;
+                Ok(Some(presigned_url))
+            }
+            Ok(None) => Ok(None),
+            Err(e) => Err(Status::internal(format!("Failed to retrieve artifact: {}", e))),
+        }
     }
 }
 

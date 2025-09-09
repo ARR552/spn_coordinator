@@ -17,7 +17,7 @@ pub async fn run_server(cfg: Config, mut shutdown_rx: mpsc::Receiver<()>) -> Res
     
     let grpc_url: std::net::SocketAddr = format!("{}:{}", cfg.server.grpc_addr, cfg.server.grpc_port).parse()?;
     let prover_network_service = ProverNetworkServiceImpl::new(cfg.artifact_base_url.clone());
-    let artifacts_service = ArtifactStoreServiceImpl::new(cfg.artifact_base_url.clone());
+    let artifacts_service = ArtifactStoreServiceImpl::new(cfg.artifact_base_url.clone())?;
     
     // build a descriptor set at compile-time with prost-build / tonic-prost-build
     // then include it here (PROTOS is &[u8])
