@@ -3,7 +3,9 @@ FROM rust:1.88 AS builder
 RUN apt-get update && apt-get install -y \
     build-essential \
     protobuf-compiler \
-    pkg-config
+    pkg-config \
+    clang \
+    libclang-dev
     
 
 WORKDIR /build
