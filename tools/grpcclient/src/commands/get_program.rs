@@ -3,26 +3,24 @@ use rpc_types::*;
 use crate::client::ProverNetworkClient;
 
 pub async fn run_get_program(url: String, vk_hash: String) -> Result<()> {
-    println!("\n=== run_get_program ===");
+    tracing::info!("=== Run get_program ===");
     
     let mut client = ProverNetworkClient::new(url).await
         .map_err(|e| anyhow::anyhow!("Failed to create client: {}", e))?;
     
-    println!("\n--- Client Request ---");
 
     let request = GetProgramRequest {
         vk_hash: hex::decode(&vk_hash)
             .map_err(|e| anyhow::anyhow!("Invalid vk_hash hex: {}", e))?,
     };
 
-    println!("Requesting program with VK Hash: {}", vk_hash);
+    tracing::info!("Requesting program with VK Hash: {}", vk_hash);
     let response = client.get_program(request).await?;
     let response_inner = response.into_inner();
     
-    println!("Client received program response:");
+    tracing::info!("Client received program response:");
     print_get_program_response(&response_inner);
-    
-    println!("\n=== Client Finished ===");
+
     Ok(())
 }
 

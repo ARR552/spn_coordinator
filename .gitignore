@@ -5,3 +5,9 @@ target
 .idea/
 .vscode/
 
+
+artifacts_db/
+
+prover_network_db/
+
+http_artifacts_db/

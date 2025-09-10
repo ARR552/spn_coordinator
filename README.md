@@ -4,7 +4,7 @@ This service allow to use sp1 nodes without the need of use the succint infrastr
 #### Run:
 ```
 cargo build
-cargo run
+cargo run -- --config ./config.toml
 ```
 
 ### Command to run spn-node:

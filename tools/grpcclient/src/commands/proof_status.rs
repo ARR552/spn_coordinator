@@ -4,12 +4,10 @@ use crate::client::ProverNetworkClient;
 use crate::utils::format_timestamp;
 
 pub async fn run_proof_request_status(url: String, request_id: String) -> Result<()> {
-    println!("\n=== run_proof_request_status ===");
+    tracing::info!("=== Run proof_request_status ===");
     
     let mut client = ProverNetworkClient::new(url).await
         .map_err(|e| anyhow::anyhow!("Failed to create client: {}", e))?;
-    
-    println!("\n--- Client Request ---");
 
     let request = GetProofRequestStatusRequest {
         request_id: hex::decode(&request_id)
@@ -19,10 +17,9 @@ pub async fn run_proof_request_status(url: String, request_id: String) -> Result
     let response = client.get_proof_request_status(request).await?;
     let response_inner = response.into_inner();
     
-    println!("Client received status response:");
+    tracing::info!("Client received status response:");
     print_proof_request_status(&response_inner);
     
-    println!("\n=== Client Finished ===");
     Ok(())
 }
 

@@ -4,32 +4,25 @@ use crate::client::ProverNetworkClient;
 use crate::utils::format_timestamp;
 
 pub async fn run_proof_request_details(url: String, request_id: String) -> Result<()> {
-    println!("\n=== run_proof_request_details ===");
+    tracing::info!("=== Run proof_request_details ===");
     
     let mut client = ProverNetworkClient::new(url).await
         .map_err(|e| anyhow::anyhow!("Failed to create client: {}", e))?;
-    
-    // Make multiple requests to demonstrate client-server interaction
-    println!("\n--- Client Request ---");
 
     let request = GetProofRequestDetailsRequest {
         request_id: hex::decode(&request_id)
             .map_err(|e| anyhow::anyhow!("Invalid request_id hex: {}", e))?,
     };
 
-    // let request = GetProofRequestDetailsRequest {
-    //     request_id: hex::decode("4e94a6a152d166b9c26faf27e406ead95b60aee02da50294e10a46131fbb9f5f").unwrap(), //aa451513b7d68dc05f8fdf0be30fe95496129961e2c0960796a95ec72d6980a2
-    // };
     let response = client.get_proof_request_details(request).await?;
     let response_inner = response.into_inner();
     
-    println!("Client received Full response:");
+    tracing::info!("Client received Full response:");
     print_proof_request_details(&response_inner);
     
     // Wait between requests
     tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-    
-    println!("\n=== Client Finished ===");
+
     Ok(())
 }
 
