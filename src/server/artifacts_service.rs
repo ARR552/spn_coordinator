@@ -79,6 +79,10 @@ impl artifact_store_server::ArtifactStore for ArtifactStoreServiceImpl {
         let artifact_column_family_handle = self.db.cf_handle(column_family_name)
             .ok_or_else(|| Status::internal(format!("Column family '{}' not found", column_family_name)))?;
         
+        if self.db.key_may_exist_cf(artifact_column_family_handle, artifact_id.as_bytes()) {
+            tracing::warn!("Artifact: Artifact {} already exists in column family: {}", artifact_id, column_family_name);
+            return Err(Status::already_exists(format!("Artifact {} already exists", artifact_id)));
+        }
         // Serialize the presigned URL as the value
         let value = presigned_url.as_bytes();
         self.db.put_cf(&artifact_column_family_handle, artifact_id.as_bytes(), value)
