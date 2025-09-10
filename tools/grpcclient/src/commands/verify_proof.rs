@@ -7,7 +7,6 @@ pub async fn run_verify_proof(
     proof_file: Option<String>, 
     vk_string: String, 
 ) -> Result<()> {
-    sp1_sdk::utils::setup_logger();
     tracing::info!("=== Run verify_proof ===");
     
     // Load proof data from URL or file
