@@ -99,6 +99,10 @@ async fn upload_artifact(
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
     
+    if storage.key_may_exist_cf(column_family_handle, artifact_id.as_bytes()) {
+        tracing::warn!("HTTP: Artifact {} already exists in the HTTP server in column family: {}", artifact_id, column_family_name);
+        return Err(StatusCode::CONFLICT);
+    }
     // Store the bytes using artifact_id as key in the appropriate column family
     storage.put_cf(&column_family_handle, artifact_id.as_bytes(), &body)
         .map_err(|e| {

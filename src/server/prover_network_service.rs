@@ -44,11 +44,14 @@ impl ProverNetworkServiceImpl {
     }
 
     // Helper method to store proof request data
-    fn store_proof_request(&self, request_id: &[u8], proof_request: &ProofRequest, status_response: &GetProofRequestStatusResponse) -> Result<(), Status> {
+    fn add_proof_request(&self, request_id: &[u8], proof_request: &ProofRequest, status_response: &GetProofRequestStatusResponse) -> Result<(), Status> {
         let table_name = "proof_requests";
         let column_family_handle = self.db.cf_handle(table_name)
             .ok_or_else(|| Status::internal("Column family 'proof_requests' not found"))?;
-        
+        if self.db.key_may_exist_cf(column_family_handle, request_id) {
+            tracing::warn!("Proofrequest {:?} already exists", request_id);
+            return Err(Status::already_exists(format!("Proofrequest with request_id {:?} already exists", request_id)));
+        }
         // Serialize the data as a tuple (ProofRequest, GetProofRequestStatusResponse)
         let data = (proof_request, status_response);
         let serialized_data = bincode::serialize(&data)
@@ -58,6 +61,17 @@ impl ProverNetworkServiceImpl {
             .map_err(|e| Status::internal(format!("Failed to store proof request: {}", e)))?;
         
         Ok(())
+    }
+
+    fn store_proof_request(&self, request_id: &[u8], proof_request: &ProofRequest, status_response: &GetProofRequestStatusResponse) -> Result<(), Status> {
+        let table_name = "proof_requests";
+        let column_family_handle = self.db.cf_handle(table_name)
+            .ok_or_else(|| Status::internal("Column family 'proof_requests' not found"))?;
+        if self.db.key_may_exist_cf(column_family_handle, request_id) {
+            tracing::warn!("Proofrequest {:?} already exists", request_id);
+            return Err(Status::already_exists(format!("Proofrequest with request_id {:?} already exists", request_id)));
+        }
+        self.add_proof_request(&request_id, &proof_request, &status_response)
     }
 
     // Helper method to retrieve proof request data
@@ -79,7 +93,7 @@ impl ProverNetworkServiceImpl {
 
     // Helper method to update proof request data
     fn update_proof_request(&self, request_id: &[u8], proof_request: &ProofRequest, status_response: &GetProofRequestStatusResponse) -> Result<(), Status> {
-        self.store_proof_request(request_id, proof_request, status_response)
+        self.add_proof_request(request_id, proof_request, status_response)
     }
 
     // Helper method to store program data
@@ -87,7 +101,10 @@ impl ProverNetworkServiceImpl {
         let table_name = "programs";
         let column_family_handle = self.db.cf_handle(table_name)
             .ok_or_else(|| Status::internal("Column family 'programs' not found"))?;
-        
+        if self.db.key_may_exist_cf(column_family_handle, vk_hash) {
+            tracing::warn!("Program {:?} already exists", vk_hash);
+            return Err(Status::already_exists(format!("Program with vk_hash {:?} already exists", vk_hash)));
+        }
         let serialized_program = bincode::serialize(program)
             .map_err(|e| Status::internal(format!("Failed to serialize program: {}", e)))?;
         
@@ -449,7 +466,7 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         let offset = page * limit as usize; // Default page size of 50
         
         // Calculate total count before pagination
-        let total_count = filtered_requests.len();
+        //let total_count = filtered_requests.len();
         
         // Apply offset and limit
         let paginated_requests: Vec<ProofRequest> = filtered_requests
@@ -458,7 +475,7 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
             .take(limit)
             .collect();
         
-        tracing::info!("PROVER_NETWORK: Returning {} requests out of {} total", paginated_requests.len(), total_count);
+        //tracing::info!("PROVER_NETWORK: Returning {} requests out of {} total", paginated_requests.len(), total_count);
         
         let filtered_requests = paginated_requests;
         Ok(Response::new(GetFilteredProofRequestsResponse {
