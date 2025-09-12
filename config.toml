@@ -11,4 +11,5 @@ grpc_port = 50051
 grpc_tls = false
 http_addr = "0.0.0.0"
 http_port = 8082
+db_path = "./db/"
 

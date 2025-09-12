@@ -14,8 +14,8 @@ pub struct ArtifactStoreServiceImpl {
 }
 
 impl ArtifactStoreServiceImpl {
-    pub fn new(artifact_base_url: String) -> Result<Self> {
-        let db_path = "artifacts_db";
+    pub fn new(path: String, artifact_base_url: String) -> Result<Self> {
+        let db_path = path + "artifacts_db";
         
         // Define column families for each artifact type
         let cf_names = ["program", "stdin", "proof", "transaction", "unspecified"];

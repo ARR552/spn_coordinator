@@ -19,8 +19,8 @@ pub struct ProverNetworkServiceImpl {
 }
 
 impl ProverNetworkServiceImpl {
-    pub fn new(artifact_base_url: String) -> Result<Self> {
-        let db_path = "prover_network_db";
+    pub fn new(path: String, artifact_base_url: String) -> Result<Self> {
+        let db_path = path + "prover_network_db";
         
         // Define column families for proof requests and programs
         let cf_names = ["proof_requests", "programs"];
