@@ -4,7 +4,7 @@ use tonic::{transport::{Channel, ClientTlsConfig, Endpoint}, Request, Response, 
 use prost::Message;
 use std::time::Duration;
 use ethers::{utils::keccak256};
-use ethers::signers::{LocalWallet};
+use ethers::signers::{LocalWallet, Signer};
 use std::str::FromStr;
 use std::{sync::Arc};
 use sp1_sdk::{
@@ -153,7 +153,7 @@ async fn sign_body(wallet: &LocalWallet, encoded_message: Vec<u8>) -> anyhow::Re
 }
 
 pub async fn create_program_request(program_uri: String) -> anyhow::Result<CreateProgramRequest> {
-    let private_key = "0x58301ea64f48a91e21f900bacf599eb61ec9331455db34f9b4279d5c652f368f";
+    let private_key = "0xe5d76acbffb5be6d87002e2cd5622b6dfe715f73ac60c613f14ba2d3f735c20b";
     let network_prover =
             Arc::new(ProverClient::builder().network().private_key(&private_key).build());
     let (_proving_key, verification_key) = network_prover.setup(FIBONACCI_ELF);
@@ -169,6 +169,7 @@ pub async fn create_program_request(program_uri: String) -> anyhow::Result<Creat
     tracing::info!("vk1 derivated hash: {}", hex::encode(vk1.hash_bytes().to_vec()));
     let mut buf = Vec::new();
     let wallet = LocalWallet::from_str("0xe5d76acbffb5be6d87002e2cd5622b6dfe715f73ac60c613f14ba2d3f735c20b")?;
+    tracing::info!("Client Wallet address: {}", wallet.address());
     program.encode(&mut buf).expect("prost encode failed");
     let signature = sign_body(&wallet, buf).await?;
     let request = rpc_types::CreateProgramRequest {
