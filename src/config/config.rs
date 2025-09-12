@@ -15,6 +15,7 @@ pub struct ServerConfig {
     pub grpc_tls: bool,               // e.g. false
     pub http_addr: String,          // e.g. "0.0.0.0"
     pub http_port: u16,                  // e.g. 8082
+    pub db_path: String,
 }
 
 impl Default for Config {
@@ -22,7 +23,6 @@ impl Default for Config {
         Self {
             server: ServerConfig::default(),
             artifact_base_url: "http://localhost:8082/artifacts".into(),
-            // prover_address: "0x0000000000000000000000000000000000000000".into(),
             log_level: "".into(),
         }
     }
@@ -36,6 +36,7 @@ impl Default for ServerConfig {
             grpc_tls: false,
             http_addr: "0.0.0.0".into(),
             http_port: 8082,
+            db_path: "./db/".into(),
         }
     }
 }

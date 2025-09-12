@@ -15,9 +15,9 @@ const PROTOS: &[u8] = include_bytes!("../../crates/types/rpc/src/generated/descr
 pub async fn run_server(cfg: Config, mut shutdown_rx: mpsc::Receiver<()>) -> Result<()> {
     tracing::info!("=== Starting gRPC Server and HTTP Server ===");
     
-    let grpc_url: std::net::SocketAddr = format!("{}:{}", cfg.server.grpc_addr, cfg.server.grpc_port).parse()?;
-    let prover_network_service = ProverNetworkServiceImpl::new(cfg.artifact_base_url.clone())?;
-    let artifacts_service = ArtifactStoreServiceImpl::new(cfg.artifact_base_url.clone())?;
+    let grpc_url: std::net::SocketAddr = format!("{}:{}", cfg.server.grpc_addr.clone(), cfg.server.grpc_port.clone()).parse()?;
+    let prover_network_service = ProverNetworkServiceImpl::new(cfg.server.db_path.clone(), cfg.artifact_base_url.clone())?;
+    let artifacts_service = ArtifactStoreServiceImpl::new(cfg.server.db_path.clone(), cfg.artifact_base_url.clone())?;
     
     // build a descriptor set at compile-time with prost-build / tonic-prost-build
     // then include it here (PROTOS is &[u8])
@@ -44,9 +44,11 @@ pub async fn run_server(cfg: Config, mut shutdown_rx: mpsc::Receiver<()>) -> Res
             tracing::debug!("Shutdown signal received, gracefully stopping gRPC server...");
         });
 
+    let server_cfg = cfg.server.clone();
+
     // Start HTTP server in a separate task
     let http_server_handle = tokio::spawn(async move {
-        match HttpServer::new(cfg.server.http_addr, cfg.server.http_port) {
+        match HttpServer::new(server_cfg) {
             Ok(http_server) => {
                 if let Err(e) = http_server.start().await {
                     tracing::error!("HTTP server error: {}", e);
@@ -59,7 +61,7 @@ pub async fn run_server(cfg: Config, mut shutdown_rx: mpsc::Receiver<()>) -> Res
     });
 
     tracing::info!("GRPC Server listening on {}", grpc_url);
-    tracing::info!("HTTP Server listening on port {}", cfg.server.http_port);
+    tracing::info!("HTTP Server listening on port {}", cfg.server.http_port.clone());
 
     // Run gRPC server and wait for it to complete
     if let Err(e) = grpc_server.await {

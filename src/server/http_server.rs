@@ -8,6 +8,7 @@ use axum::{
 };
 use rocksdb::{DB, Options, ColumnFamilyDescriptor};
 use anyhow::Result;
+use crate::config::ServerConfig;
 
 /// HTTP server for handling artifact uploads via PUT requests
 #[derive(Debug, Clone)]
@@ -19,8 +20,8 @@ pub struct HttpServer {
 }
 
 impl HttpServer {
-    pub fn new(addr: String, port: u16) -> Result<Self> {
-        let db_path = "http_artifacts_db";
+    pub fn new(cfg: ServerConfig) -> Result<Self> {
+        let db_path = cfg.db_path + "http_artifacts_db";
         
         // Define column families for each artifact type (same as in artifacts_service.rs)
         let cf_names = ["program", "stdin", "proof", "transaction", "unspecified"];
@@ -39,8 +40,8 @@ impl HttpServer {
         
         Ok(Self {
             storage: Arc::new(db),
-            addr,
-            port,
+            addr: cfg.http_addr,
+            port: cfg.http_port,
         })
     }
     
@@ -158,7 +159,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_storage_operations() {
-        let server = HttpServer::new("0.0.0.0".to_string(), 0).expect("Failed to create server"); // Use port 0 for testing
+        let config = ServerConfig {
+            db_path: "./db/test/".to_string(),
+            http_addr: "0.0.0.0".to_string(),
+            http_port: 0,
+            ..Default::default()
+        };
+        let server = HttpServer::new(config).expect("Failed to create server"); // Use port 0 for testing
         let storage = server.get_storage();
         
         let test_data = Bytes::from("test data");
