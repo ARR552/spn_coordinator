@@ -291,13 +291,16 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         };
         tracing::info!("PROVER_NETWORK: Server fulfill_proof method Recovered requester address: {:?}", hex::encode(&requester));
 
-
-
         let body = req.body.ok_or_else(|| Status::invalid_argument("Request body is required"))?;
         tracing::debug!("PROVER_NETWORK: domain: {}, request_id: {}, variant: {}, nonce: {}, reserved_metadata: {:?}", hex::encode(&body.domain), hex::encode(&body.request_id), body.variant, body.nonce, body.reserved_metadata);
         let tx_hash_bytes = random::<[u8; 32]>().to_vec();
         
         if let Some((mut proof_request, mut status)) = self.get_proof_request(&body.request_id)? {
+            // Check signer
+            if proof_request.fulfiller.as_ref() != Some(&requester) {
+                tracing::error!("✗ Fulfiller address {:?} does not match assigned fulfiller address {:?}", hex::encode(&requester), proof_request.fulfiller.as_ref().map(|f| hex::encode(f)).unwrap_or_default());
+                return Err(Status::permission_denied("Fulfiller address does not match assigned fulfiller address"));
+            }
             // Upload proof
             let url = generate_proof_url(self.artifact_base_url.as_str());
             let client = reqwest::Client::new();
@@ -327,7 +330,7 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
             let now = chrono::Utc::now().timestamp() as u64;
             proof_request.fulfillment_status = status.fulfillment_status;
             proof_request.updated_at = now;
-            proof_request.fulfiller = Some(requester);
+            // proof_request.fulfiller = Some(requester);
             proof_request.fulfilled_at = Some(now);
             proof_request.execution_status = ExecutionStatus::Executed as i32;
             
@@ -349,11 +352,26 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
     }
 
     async fn fail_fulfillment(&self, request: Request<FailFulfillmentRequest>) -> Result<Response<FailFulfillmentResponse>, Status> {
-        // TODO validate signature
+        // Extract signature and recover requester address
+        let req = request.into_inner();
+        let msg_bytes: Vec<u8> = encode_body_for_signing(req.format, req.body.as_ref().ok_or_else(|| Status::invalid_argument("Request body is required"))?)
+            .map_err(|e| Status::internal(format!("Failed to encode body for signing: {}", e)))?;
+        let requester = match req.body.as_ref() {
+            Some(_body) => recover_signer_addr(msg_bytes, &req.signature)
+                .map_err(|e| Status::invalid_argument(format!("Failed to recover signer address: {}", e)))?,
+            None => return Err(Status::invalid_argument("Request body is required")),
+        };
+        tracing::info!("PROVER_NETWORK: Server fulfill_proof method Recovered requester address: {:?}", hex::encode(&requester));
+
         // Extract body safely from Option
-        let body = request.into_inner().body.ok_or_else(|| Status::invalid_argument("Request body is required"))?;
+        let body = req.body.ok_or_else(|| Status::invalid_argument("Request body is required"))?;
         
         if let Some((mut proof_request, mut status)) = self.get_proof_request(&body.request_id)? {
+            // Check signer
+            if proof_request.fulfiller.as_ref() != Some(&requester) {
+                tracing::error!("✗ Fulfiller address {:?} does not match assigned fulfiller address {:?}", hex::encode(&requester), proof_request.fulfiller.as_ref().map(|f| hex::encode(f)).unwrap_or_default());
+                return Err(Status::permission_denied("Fulfiller address does not match assigned fulfiller address"));
+            }
             // Update fulfillment status to Unfulfillable
             status.fulfillment_status = FulfillmentStatus::Unfulfillable as i32;
             let now = chrono::Utc::now().timestamp() as u64;
