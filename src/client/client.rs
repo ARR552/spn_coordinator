@@ -257,9 +257,9 @@ pub async fn run_client() -> Result<()> {
     tracing::info!("Client create program response: TX Hash = {}", hex::encode(&program_response_inner.tx_hash));
 
     // TODO create the stdin artifact
-    let mut stdin = SP1Stdin::new();
-    let n: u32 = 20;
-    stdin.write(&n);
+    // let mut stdin = SP1Stdin::new();
+    // let n: u32 = 20;
+    // stdin.write(&n);
     // let artifact_type = ArtifactType::Stdin;
     // let artifact_request = create_artifact_request(artifact_type).await?;
     
@@ -294,26 +294,30 @@ pub async fn run_client() -> Result<()> {
     // }
 
     // TODO request proof resquest
-    let private_key = "0x58301ea64f48a91e21f900bacf599eb61ec9331455db34f9b4279d5c652f368f";
+    let private_key: &'static str = "0xe5d76acbffb5be6d87002e2cd5622b6dfe715f73ac60c613f14ba2d3f735c20b";
     let rpc_url = "http://localhost:50051";
     let network_prover =
             Arc::new(ProverClient::builder().network().private_key(&private_key).rpc_url(rpc_url).build());
     let (proving_key, _verification_key) = network_prover.setup(FIBONACCI_ELF);
-    tracing::info!("Calling prover. It should start computing the proof");
-    let _proof = network_prover
-        .prove(&proving_key, &stdin)
-        .compressed()
-        .strategy(FulfillmentStrategy::Hosted)
-        .skip_simulation(true)
-        .gas_limit(10_000_000_000)
-        .cycle_limit(100_000_000)
-        .request_async()
-        //.run_async()
-        .await?;
-    
-    
-    // Wait between requests
-    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    for i in 0..10 {
+        let mut stdin = SP1Stdin::new();
+        let n: u32 = i;
+        stdin.write(&n);
+
+        tracing::info!("Calling the spn-coordinator, requesting a proof computation. It should start computing the proof sortly");
+        let _proof = network_prover
+            .prove(&proving_key, &stdin)
+            .compressed()
+            .strategy(FulfillmentStrategy::Hosted)
+            .skip_simulation(true)
+            .gas_limit(10_000_000_000)
+            .cycle_limit(100_000_000)
+            .request_async()
+            //.run_async()
+            .await?;
+        // Wait between requests
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+    }
     
     tracing::info!("\n=== Client Finished ===");
 
