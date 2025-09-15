@@ -4,7 +4,7 @@ use tonic::{Request, Response, Status, transport::{Channel, Endpoint, ClientTlsC
 use prost::Message;
 use std::time::Duration;
 use ethers::{utils::keccak256};
-use ethers::signers::{LocalWallet};
+use ethers::signers::{LocalWallet, Signer};
 use std::str::FromStr;
 
 /// The zkvm ELF binaries.
@@ -157,6 +157,7 @@ pub async fn create_program_request(program_uri: String) -> anyhow::Result<Creat
 
     let mut buf = Vec::new();
     let wallet = LocalWallet::from_str("0xe5d76acbffb5be6d87002e2cd5622b6dfe715f73ac60c613f14ba2d3f735c20b")?;
+    tracing::info!("Client Wallet address: {}", wallet.address());
     program.encode(&mut buf).expect("prost encode failed");
     let signature = sign_body(&wallet, buf).await?;
     let request = rpc_types::CreateProgramRequest {

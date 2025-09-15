@@ -8,6 +8,8 @@ use rand::random;
 use prost::Message;
 use std::sync::Arc;
 use rocksdb::{DB, Options, ColumnFamilyDescriptor};
+use tokio::sync::{mpsc, Mutex};
+use tokio::task;
 
 /// Real gRPC service implementation for ProverNetwork
 #[derive(Debug)]
@@ -16,6 +18,8 @@ pub struct ProverNetworkServiceImpl {
     pub artifact_base_url: String,
     /// RocksDB database with separate column families for proof requests and programs
     db: Arc<DB>,
+    /// Channel to notify background assignment process of available provers
+    free_prover_tx: mpsc::UnboundedSender<Vec<u8>>,
 }
 
 impl ProverNetworkServiceImpl {
@@ -37,9 +41,31 @@ impl ProverNetworkServiceImpl {
         let db = DB::open_cf_descriptors(&db_opts, db_path, cf_descriptors)
             .map_err(|e| anyhow::anyhow!("Failed to open RocksDB: {}", e))?;
         
+        let db = Arc::new(db);
+        
+        // Create channel for notifying about free provers
+        let (free_prover_tx, mut free_prover_rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        
+        // Create mutex for assignment process
+        let assignment_mutex = Arc::new(Mutex::new(()));
+        
+        // Clone everything needed for background task
+        let db_clone = Arc::clone(&db);
+        let assignment_mutex_clone = Arc::clone(&assignment_mutex);
+        
+        // Spawn background task for automatic proof assignment
+        task::spawn(async move {
+            while let Some(prover_address) = free_prover_rx.recv().await {
+                if let Err(e) = assign_proof_to_prover_static(&db_clone, &prover_address, &assignment_mutex_clone).await {
+                    tracing::error!("Failed to assign proof to prover {:?}: {}", hex::encode(&prover_address), e);
+                }
+            }
+        });
+        
         Ok(Self {
             artifact_base_url,
-            db: Arc::new(db),
+            db,
+            free_prover_tx,
         })
     }
 
@@ -48,10 +74,6 @@ impl ProverNetworkServiceImpl {
         let table_name = "proof_requests";
         let column_family_handle = self.db.cf_handle(table_name)
             .ok_or_else(|| Status::internal("Column family 'proof_requests' not found"))?;
-        if self.db.key_may_exist_cf(column_family_handle, request_id) {
-            tracing::warn!("Proofrequest {:?} already exists", request_id);
-            return Err(Status::already_exists(format!("Proofrequest with request_id {:?} already exists", request_id)));
-        }
         // Serialize the data as a tuple (ProofRequest, GetProofRequestStatusResponse)
         let data = (proof_request, status_response);
         let serialized_data = bincode::serialize(&data)
@@ -175,7 +197,7 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         
         // Store the request for status tracking
         let status_response = GetProofRequestStatusResponse {
-            fulfillment_status: FulfillmentStatus::Assigned as i32,
+            fulfillment_status: FulfillmentStatus::Requested as i32,
             execution_status: ExecutionStatus::Unexecuted as i32,
             request_tx_hash: response.tx_hash.clone(),
             deadline: req.body.as_ref().map(|b| b.deadline).unwrap_or_default(),
@@ -213,7 +235,6 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
                 min_auction_period: req.body.as_ref().map(|b| b.min_auction_period.clone()).unwrap_or_default(),
                 whitelist: req.body.as_ref().map(|b| b.whitelist.clone()).unwrap_or_default(),
                 requester: requester.clone(),
-                fulfiller: Some(requester.clone()),
                 program_uri: program.as_ref().map(|p| p.program_uri.clone()).unwrap_or_default(),
                 program_public_uri: program.as_ref().map(|p| p.program_uri.clone()).unwrap_or_default(),
                 stdin_uri: req.body.as_ref().map(|b| b.stdin_uri.clone()).unwrap_or_default(),
@@ -478,6 +499,19 @@ impl prover_network_server::ProverNetwork for ProverNetworkServiceImpl {
         //tracing::info!("PROVER_NETWORK: Returning {} requests out of {} total", paginated_requests.len(), total_count);
         
         let filtered_requests = paginated_requests;
+        
+        // Check if this is a request from a specific prover (fulfiller filter) and no results found
+        // This indicates the prover is free and available for new assignments
+        if let Some(ref prover_address) = req_inner.fulfiller {
+            if filtered_requests.is_empty() {
+                tracing::trace!("PROVER_ASSIGNMENT: No proof requests found for prover {}, notifying assignment process", hex::encode(prover_address));
+                // Notify the background assignment process that this prover is free
+                if let Err(e) = self.free_prover_tx.send(prover_address.clone()) {
+                    tracing::error!("PROVER_ASSIGNMENT: Failed to notify assignment process: {}", e);
+                }
+            }
+        }
+        
         Ok(Response::new(GetFilteredProofRequestsResponse {
             requests: filtered_requests,
         }))
@@ -1121,4 +1155,62 @@ fn generate_proof_url(artifact_base_url: &str) -> String {
     // Generate a URL pointing to our HTTP server
     // The client will use this URL to PUT the artifact data
     format!("{}/artifacts/Proof/{}", artifact_base_url, hex::encode(random::<[u8; 16]>()))
+}
+
+// Static method for background task (since it can't access self)
+// Uses mutex to prevent race conditions during assignment
+async fn assign_proof_to_prover_static(db: &Arc<DB>, prover_address: &[u8], assignment_mutex: &Arc<Mutex<()>>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Acquire the mutex lock to ensure only one assignment process runs at a time
+    let _lock = assignment_mutex.lock().await;
+    
+    tracing::debug!(
+        "PROVER_ASSIGNMENT: Starting assignment process for prover {} (static method with passed mutex)",
+        hex::encode(prover_address)
+    );
+    
+    let table_name = "proof_requests";
+    let column_family_handle = db.cf_handle(table_name)
+        .ok_or("Column family 'proof_requests' not found")?;
+    
+    // Find the oldest unassigned proof request
+    let iter = db.iterator_cf(&column_family_handle, rocksdb::IteratorMode::Start);
+    
+    for item in iter {
+        let (key, value) = item?;
+        let (mut proof_request, mut status_response): (ProofRequest, GetProofRequestStatusResponse) = 
+            bincode::deserialize(&value)?;
+        
+        // Check if this proof request is unassigned
+        if proof_request.fulfillment_status == FulfillmentStatus::Requested as i32 {
+            // Assign the proof request to this prover
+            proof_request.fulfillment_status = FulfillmentStatus::Assigned as i32;
+            proof_request.fulfiller = Some(prover_address.to_vec());
+            proof_request.updated_at = chrono::Utc::now().timestamp() as u64;
+            
+            // Update the status response
+            status_response.fulfillment_status = FulfillmentStatus::Assigned as i32;
+            
+            // Serialize and store the updated proof request
+            let updated_data = (proof_request.clone(), status_response);
+            let serialized_data = bincode::serialize(&updated_data)?;
+            db.put_cf(&column_family_handle, &key, serialized_data)?;
+            
+            tracing::info!(
+                "PROVER_ASSIGNMENT: Successfully assigned proof request {} to prover {} (static method with passed mutex)",
+                hex::encode(&key),
+                hex::encode(prover_address)
+            );
+            
+            // Only assign one proof per call
+            return Ok(());
+        }
+    }
+    
+    tracing::debug!(
+        "PROVER_ASSIGNMENT: No unassigned proof requests found for prover {} (static method with passed mutex)",
+        hex::encode(prover_address)
+    );
+    
+    Ok(())
+    // Mutex lock is automatically released when _lock goes out of scope
 }
