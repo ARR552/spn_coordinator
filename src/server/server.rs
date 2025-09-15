@@ -16,7 +16,7 @@ pub async fn run_server(cfg: Config, mut shutdown_rx: mpsc::Receiver<()>) -> Res
     tracing::info!("=== Starting gRPC Server and HTTP Server ===");
     
     let grpc_url: std::net::SocketAddr = format!("{}:{}", cfg.server.grpc_addr.clone(), cfg.server.grpc_port.clone()).parse()?;
-    let prover_network_service = ProverNetworkServiceImpl::new(cfg.server.db_path.clone(), cfg.artifact_base_url.clone())?;
+    let prover_network_service = ProverNetworkServiceImpl::new(cfg.server.clone(), cfg.artifact_base_url.clone())?;
     let artifacts_service = ArtifactStoreServiceImpl::new(cfg.server.db_path.clone(), cfg.artifact_base_url.clone())?;
     
     // build a descriptor set at compile-time with prost-build / tonic-prost-build
