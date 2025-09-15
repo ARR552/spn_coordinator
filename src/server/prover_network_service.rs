@@ -10,6 +10,7 @@ use std::sync::Arc;
 use rocksdb::{DB, Options, ColumnFamilyDescriptor};
 use tokio::sync::{mpsc, Mutex};
 use tokio::task;
+use crate::config::ServerConfig;
 
 /// Real gRPC service implementation for ProverNetwork
 #[derive(Debug)]
@@ -23,8 +24,8 @@ pub struct ProverNetworkServiceImpl {
 }
 
 impl ProverNetworkServiceImpl {
-    pub fn new(path: String, artifact_base_url: String) -> Result<Self> {
-        let db_path = path + "prover_network_db";
+    pub fn new(cfg: ServerConfig, artifact_base_url: String) -> Result<Self> {
+        let db_path = cfg.db_path + "prover_network_db";
         
         // Define column families for proof requests and programs
         let cf_names = ["proof_requests", "programs"];
@@ -49,15 +50,30 @@ impl ProverNetworkServiceImpl {
         // Create mutex for assignment process
         let assignment_mutex = Arc::new(Mutex::new(()));
         
-        // Clone everything needed for background task
+        // Clone everything needed for background tasks
         let db_clone = Arc::clone(&db);
         let assignment_mutex_clone = Arc::clone(&assignment_mutex);
+        let db_timeout_clone = Arc::clone(&db);
+        let assignment_mutex_timeout_clone = Arc::clone(&assignment_mutex);
         
         // Spawn background task for automatic proof assignment
         task::spawn(async move {
             while let Some(prover_address) = free_prover_rx.recv().await {
                 if let Err(e) = assign_proof_to_prover_static(&db_clone, &prover_address, &assignment_mutex_clone).await {
                     tracing::error!("Failed to assign proof to prover {:?}: {}", hex::encode(&prover_address), e);
+                }
+            }
+        });
+        
+        let proof_reassign_timeout: u64 = cfg.checker.proof_reassign_timeout;
+        let checker_interval:u64 = cfg.checker.checker_interval;
+        // Spawn background task for timeout checking (every 30 seconds)
+        task::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(checker_interval));
+            loop {
+                interval.tick().await;
+                if let Err(e) = check_and_reassign_expired_proofs(&db_timeout_clone, &assignment_mutex_timeout_clone, proof_reassign_timeout).await {
+                    tracing::error!("Failed to check for expired proof assignments: {}", e);
                 }
             }
         });
@@ -1210,6 +1226,104 @@ async fn assign_proof_to_prover_static(db: &Arc<DB>, prover_address: &[u8], assi
         "PROVER_ASSIGNMENT: No unassigned proof requests found for prover {} (static method with passed mutex)",
         hex::encode(prover_address)
     );
+    
+    Ok(())
+    // Mutex lock is automatically released when _lock goes out of scope
+}
+
+// Function to check for expired proof assignments and reassign them
+// 
+// This function implements a timeout mechanism to handle cases where:
+// 1. A prover is assigned a proof request but goes offline
+// 2. A prover takes too long to complete the proof
+// 
+// Timeout Logic:
+// - Timeout = deadline/2 (half the time until the proof deadline)
+// - Minimum timeout: 5 minutes (300 seconds)
+// - Maximum timeout: 2 hours (7200 seconds)
+// - Uses proof_request.updated_at as the assignment timestamp
+// 
+// When a timeout occurs:
+// - The proof request is marked as "Requested" again (unassigned)
+// - The fulfiller field is cleared
+// - The proof becomes available for reassignment to other provers
+async fn check_and_reassign_expired_proofs(db: &Arc<DB>, assignment_mutex: &Arc<Mutex<()>>, config_timeout: u64) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Acquire the mutex lock to ensure no conflicts with assignment process
+    let _lock = assignment_mutex.lock().await;
+    
+    tracing::trace!("TIMEOUT_CHECKER: Starting timeout check for assigned proof requests");
+    
+    let table_name = "proof_requests";
+    let column_family_handle = db.cf_handle(table_name)
+        .ok_or("Column family 'proof_requests' not found")?;
+    
+    let current_time = chrono::Utc::now().timestamp() as u64;
+    let iter = db.iterator_cf(&column_family_handle, rocksdb::IteratorMode::Start);
+    let mut expired_count = 0;
+    
+    for item in iter {
+        let (key, value) = item?;
+        let (mut proof_request, mut status_response): (ProofRequest, GetProofRequestStatusResponse) = 
+            bincode::deserialize(&value)?;
+        
+        // Check if this proof request is assigned and potentially expired
+        if proof_request.fulfillment_status == FulfillmentStatus::Assigned as i32 {
+            // Calculate timeout: deadline/2, with minimum of 5 minutes and maximum of 2 hours
+            let deadline_duration = proof_request.deadline.saturating_sub(proof_request.created_at);
+            let timeout_duration = if config_timeout > 0 {
+                tracing::trace!("Using configured timeout of {} seconds for proof request {}", config_timeout, hex::encode(&key));
+                config_timeout
+            } else {
+                std::cmp::max(
+                    300,  // minimum 5 minutes
+                    std::cmp::min(
+                        7200, // maximum 2 hours  
+                        deadline_duration / 2
+                    )
+                )
+            };
+            
+            let assignment_time = proof_request.updated_at; // This is when it was assigned
+            let timeout_threshold = assignment_time + timeout_duration;
+
+            if current_time > timeout_threshold {
+                tracing::warn!(
+                    "TIMEOUT_CHECKER: Proof request {} assigned to prover {} has expired (assigned at {}, timeout at {}, current time {})",
+                    hex::encode(&key),
+                    proof_request.fulfiller.as_ref().map(|f| hex::encode(f)).unwrap_or_default(),
+                    assignment_time,
+                    timeout_threshold,
+                    current_time
+                );
+                
+                // Reassign the proof request back to unassigned status
+                proof_request.fulfillment_status = FulfillmentStatus::Requested as i32;
+                proof_request.fulfiller = None;
+                proof_request.updated_at = current_time;
+                
+                // Update the status response
+                status_response.fulfillment_status = FulfillmentStatus::Requested as i32;
+                
+                // Serialize and store the updated proof request
+                let updated_data = (proof_request.clone(), status_response);
+                let serialized_data = bincode::serialize(&updated_data)?;
+                db.put_cf(&column_family_handle, &key, serialized_data)?;
+                
+                expired_count += 1;
+                
+                tracing::info!(
+                    "TIMEOUT_CHECKER: Successfully reassigned expired proof request {} back to unassigned status",
+                    hex::encode(&key)
+                );
+            }
+        }
+    }
+    
+    if expired_count > 0 {
+        tracing::info!("TIMEOUT_CHECKER: Reassigned {} expired proof assignments", expired_count);
+    } else {
+        tracing::trace!("TIMEOUT_CHECKER: No expired proof assignments found");
+    }
     
     Ok(())
     // Mutex lock is automatically released when _lock goes out of scope

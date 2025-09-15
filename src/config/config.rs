@@ -16,6 +16,13 @@ pub struct ServerConfig {
     pub http_addr: String,          // e.g. "0.0.0.0"
     pub http_port: u16,                  // e.g. 8082
     pub db_path: String,
+    pub checker: CheckerConfig,          // Checker configuration
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CheckerConfig {
+    pub proof_reassign_timeout: u64,            // e.g. 3600. Disable, set to 0
+    pub checker_interval: u64,                  // e.g. 30
 }
 
 impl Default for Config {
@@ -37,6 +44,16 @@ impl Default for ServerConfig {
             http_addr: "0.0.0.0".into(),
             http_port: 8082,
             db_path: "./db/".into(),
+            checker: CheckerConfig::default(),
+        }
+    }
+}
+
+impl Default for CheckerConfig {
+    fn default() -> Self {
+        Self {
+            proof_reassign_timeout: 0,  // Disabled by default
+            checker_interval: 30,
         }
     }
 }
@@ -49,6 +66,8 @@ pub fn load_config(explicit_path: Option<PathBuf>) -> anyhow::Result<Config> {
         .set_default("server.grpc_tls", Config::default().server.grpc_tls)?
         .set_default("server.http_addr", Config::default().server.http_addr)?
         .set_default("server.http_port", Config::default().server.http_port)?
+        .set_default("server.checker.proof_reassign_timeout", Config::default().server.checker.proof_reassign_timeout)?
+        .set_default("server.checker.checker_interval", Config::default().server.checker.checker_interval)?
         .set_default("artifact_base_url", Config::default().artifact_base_url)?
         .set_default("log_level", Config::default().log_level.clone())?;
 
