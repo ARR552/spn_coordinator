@@ -140,8 +140,8 @@ impl ProverNetworkServiceImpl {
         let column_family_handle = self.db.cf_handle(table_name)
             .ok_or_else(|| Status::internal("Column family 'programs' not found"))?;
         if self.db.key_may_exist_cf(column_family_handle, vk_hash) {
-            tracing::warn!("Program {:?} already exists", vk_hash);
-            return Err(Status::already_exists(format!("Program with vk_hash {:?} already exists", vk_hash)));
+            tracing::warn!("Program {:?} already exists", hex::encode(vk_hash));
+            return Err(Status::already_exists(format!("Program with vk_hash {:?} already exists", hex::encode(vk_hash))));
         }
         let serialized_program = bincode::serialize(program)
             .map_err(|e| Status::internal(format!("Failed to serialize program: {}", e)))?;

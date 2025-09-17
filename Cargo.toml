@@ -62,6 +62,7 @@ serde.workspace = true
 directories = "6.0.0"
 config = "0.15.15"
 rocksdb = "0.24.0"
+sp1-sdk = "5.2.1"
 
 [workspace.dependencies]
 rpc = { path = "crates/types/rpc" }

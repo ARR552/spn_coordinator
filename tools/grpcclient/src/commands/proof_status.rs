@@ -1,12 +1,12 @@
 use anyhow::Result;
 use rpc_types::*;
-use crate::client::ProverNetworkClient;
+use crate::client::Client;
 use crate::utils::format_timestamp;
 
 pub async fn run_proof_request_status(url: String, request_id: String) -> Result<()> {
     tracing::info!("=== Run proof_request_status ===");
     
-    let mut client = ProverNetworkClient::new(url).await
+    let mut client = Client::new(url).await
         .map_err(|e| anyhow::anyhow!("Failed to create client: {}", e))?;
 
     let request = GetProofRequestStatusRequest {

@@ -6,6 +6,10 @@ use std::time::Duration;
 use ethers::{utils::keccak256};
 use ethers::signers::{LocalWallet, Signer};
 use std::str::FromStr;
+use std::{sync::Arc};
+use sp1_sdk::{
+    HashableKey, Prover, ProverClient, SP1VerifyingKey,
+};
 
 /// The zkvm ELF binaries.
 pub const AGGREGATION_ELF: &[u8] = include_bytes!("./elf/aggregation-elf");
@@ -147,16 +151,26 @@ async fn sign_body(wallet: &LocalWallet, encoded_message: Vec<u8>) -> anyhow::Re
     Ok(sig.to_vec())
 }
 
-pub async fn create_program_request(program_uri: String) -> anyhow::Result<CreateProgramRequest> {
+pub async fn create_program_request(program_uri: String, elf: &[u8], private_key: &str) -> anyhow::Result<CreateProgramRequest> {
+    let network_prover =
+            Arc::new(ProverClient::builder().network().private_key(&private_key).build());
+    let (_proving_key, verification_key) = network_prover.setup(elf);
     let program = rpc_types::CreateProgramRequestBody {
-        vk_hash: hex::decode("005d763c1b4e00563d156f9ba8cc60561014267a5d3f5f16e2b8a47fa9dfe173").unwrap_or_default(),
-        vk: hex::decode("18c19a61c29c213edfea9e0e5f7b35610f968f43282c5002be4fd123980b3a4644a92d00fecded6ac7efd272fca32d3f487d864ef12bf638be069326153b79650edd32370c739032ac70962f7b08ef1376627c701343d63742584c2c0200000000000000070000000000000050726f6772616d1400000000000000010000000e0000000000000000001000000000000400000000000000427974651000000000000000010000000b0000000000000000000100000000000200000000000000070000000000000050726f6772616d00000000000000000400000000000000427974650100000000000000").unwrap_or_default(),
+        vk_hash: verification_key.vk.bytes32_raw().to_vec(), //hex::decode("005d763c1b4e00563d156f9ba8cc60561014267a5d3f5f16e2b8a47fa9dfe173").unwrap_or_default(),
+        vk: bincode::serialize(&verification_key)?, //hex::decode("18c19a61c29c213edfea9e0e5f7b35610f968f43282c5002be4fd123980b3a4644a92d00fecded6ac7efd272fca32d3f487d864ef12bf638be069326153b79650edd32370c739032ac70962f7b08ef1376627c701343d63742584c2c0200000000000000070000000000000050726f6772616d1400000000000000010000000e0000000000000000001000000000000400000000000000427974651000000000000000010000000b0000000000000000000100000000000200000000000000070000000000000050726f6772616d00000000000000000400000000000000427974650100000000000000").unwrap_or_default(),
         program_uri: program_uri,
         nonce: 0,
     };
-
+    let vk1: SP1VerifyingKey = bincode::deserialize(&program.vk)?;
+    let computed_vk_hash = vk1.bytes32_raw();
+    tracing::info!("program.vk_hash: {:?}", hex::encode(program.vk_hash.clone()));
+    tracing::info!("program.vk: {:?}", hex::encode(program.vk.clone()));
+    if hex::encode(computed_vk_hash) != hex::encode(program.vk_hash.clone()) {
+        tracing::error!("computed_vk_hash: {}, vk_hash: {}", hex::encode(computed_vk_hash), hex::encode(program.vk_hash.clone()));
+        return Err(anyhow::anyhow!("VK hash mismatch!"));
+    }
     let mut buf = Vec::new();
-    let wallet = LocalWallet::from_str("0xe5d76acbffb5be6d87002e2cd5622b6dfe715f73ac60c613f14ba2d3f735c20b")?;
+    let wallet = LocalWallet::from_str(private_key)?;
     tracing::info!("Client Wallet address: {}", wallet.address());
     program.encode(&mut buf).expect("prost encode failed");
     let signature = sign_body(&wallet, buf).await?;
@@ -183,7 +197,9 @@ pub async fn run_client() -> Result<()> {
     
     // Wait a bit for server to start
     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-    
+    let private_key = "0xe5d76acbffb5be6d87002e2cd5622b6dfe715f73ac60c613f14ba2d3f735c20b";
+    let artifact_bytes = AGGREGATION_ELF;
+
     let mut prover_network_client = ProverNetworkClient::new("http://127.0.0.1:50051".to_string()).await
         .map_err(|e| {
             tracing::error!("Detailed prover_network_client creation error: {:?}", e);
@@ -215,7 +231,6 @@ pub async fn run_client() -> Result<()> {
     };
     
     // Upload the artifact using the presigned URL
-    let artifact_bytes = AGGREGATION_ELF;
     tracing::info!("Uploading artifact ({} bytes) to presigned URL...", artifact_bytes.len());
 
     let put_url = response_inner.artifact_presigned_url.clone().replace("spn-coordinator-001", "localhost");
@@ -236,7 +251,7 @@ pub async fn run_client() -> Result<()> {
     }
 
     // Create a request
-    let request = create_program_request(response_inner.artifact_presigned_url.clone()).await?;
+    let request = create_program_request(response_inner.artifact_presigned_url.clone(), artifact_bytes, private_key).await?;
     
     tracing::info!("Client sending proof request ");
     // let response = client.request_proof(request).await?;

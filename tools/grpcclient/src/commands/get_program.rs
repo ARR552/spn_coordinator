@@ -1,11 +1,11 @@
 use anyhow::Result;
 use rpc_types::*;
-use crate::client::ProverNetworkClient;
+use crate::client::Client;
 
 pub async fn run_get_program(url: String, vk_hash: String) -> Result<()> {
     tracing::info!("=== Run get_program ===");
     
-    let mut client = ProverNetworkClient::new(url).await
+    let mut client = Client::new(url).await
         .map_err(|e| anyhow::anyhow!("Failed to create client: {}", e))?;
     
 

@@ -18,6 +18,8 @@ bincode = "1.3.3"
 sp1-sdk = "5.2.1"
 tracing = "0.1.41"
 logger = { path = "../../crates/logger" }
+prost = "0.14.1"
+ethers = "2.0.14"
 
 [[bin]]
 name = "grpc_client_tool"

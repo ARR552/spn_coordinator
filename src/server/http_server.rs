@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use bytes::Bytes;
 use axum::{
-    extract::{Path, State},
+    extract::{DefaultBodyLimit, Path, State},
     http::StatusCode,
     routing::{get, put},
     Router,
@@ -67,6 +67,7 @@ impl HttpServer {
             .route("/artifacts/{artifact_type}/{artifact_id}", put(upload_artifact))
             .route("/artifacts/{artifact_type}/{artifact_id}", get(download_artifact))
             .route("/health", get(health_check))
+            .layer(DefaultBodyLimit::max(64 * 1024 * 1024))
             .with_state(storage);
 
         let url = format!("{}:{}", self.addr, self.port);

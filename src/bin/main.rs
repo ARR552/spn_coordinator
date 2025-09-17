@@ -1,5 +1,5 @@
 use anyhow::Result;
-use spn_coordinator::client::run_client;
+// use spn_coordinator::client::run_client;
 use spn_coordinator::server::run_server;
 use tokio::sync::mpsc;
 use tokio::signal;
@@ -75,12 +75,12 @@ async fn main() -> Result<()> {
         }
     });
     
-    // Spawn client task
-    let client_handle = tokio::spawn(async move {
-        if let Err(e) = run_client().await {
-            tracing::error!("Client error: {}", e);
-        }
-    });
+    // // Spawn client task
+    // let client_handle = tokio::spawn(async move {
+    //     if let Err(e) = run_client().await {
+    //         tracing::error!("Client error: {}", e);
+    //     }
+    // });
     
     // Spawn signal handler task
     let signal_handle = tokio::spawn(async move {
@@ -89,9 +89,9 @@ async fn main() -> Result<()> {
         let _ = shutdown_tx.send(()).await;
     });
     
-    // Wait for client to finish
-    let _ = client_handle.await;
-    tracing::info!("Client completed. Server continues running in background...");
+    // // Wait for client to finish
+    // let _ = client_handle.await;
+    // tracing::info!("Client completed. Server continues running in background...");
     tracing::info!("Press Ctrl+C to gracefully shutdown the server");
     
     // Wait for shutdown signal

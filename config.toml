@@ -2,7 +2,7 @@
 log_level = "info" # If it is not set, the spn_coordinator loads the ENV (RUST_LOG=info by default)
 
 # Artifact settings
-artifact_base_url = "http://spn-coordinator-001:8082"
+artifact_base_url = "http://localhost:8082"
 
 # Server settings
 [server]
